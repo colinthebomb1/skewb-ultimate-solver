@@ -41,6 +41,41 @@ body {
   background: #fffcf5;
 }
 
+.controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.controls button {
+  min-height: 44px;
+  border: 1px solid #c9c1b2;
+  border-radius: 8px;
+  color: #1e2528;
+  background: #f6efe2;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.controls button:hover {
+  border-color: #928675;
+  background: #efe2cc;
+  transform: translateY(-1px);
+}
+
+.controls button:active {
+  transform: translateY(0);
+}
+
+.controls button[data-scramble] {
+  grid-column: 1 / -1;
+}
+
 .eyebrow {
   margin: 0 0 10px;
   color: #697477;
@@ -103,4 +138,3 @@ dd {
     border-top: 1px solid #d8d3c8;
   }
 }
-
