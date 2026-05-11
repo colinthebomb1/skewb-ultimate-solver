@@ -42,7 +42,8 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
 const CORE_RADIUS = 1.63;
 const PLASTIC_SCALE = 0.94;
 const STICKER_SCALE = 0.84;
-const SURFACE_LIFT = 0.003;
+const PLASTIC_LIFT = 0.003;
+const STICKER_LIFT = 0.007;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -321,7 +322,7 @@ function createCutPieceGroup(
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
   const backingVertices = shrinkPolygon(localVertices, PLASTIC_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(PLASTIC_LIFT)));
   const backing = new THREE.Mesh(
     createPolygonGeometry(backingVertices),
     new THREE.MeshStandardMaterial({
@@ -335,7 +336,7 @@ function createCutPieceGroup(
   group.add(backing);
 
   const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(STICKER_LIFT)));
   const sticker = new THREE.Mesh(
     createPolygonGeometry(stickerVertices),
     new THREE.MeshStandardMaterial({
@@ -344,9 +345,6 @@ function createCutPieceGroup(
       metalness: 0.02,
       side: THREE.DoubleSide,
       flatShading: true,
-      polygonOffset: true,
-      polygonOffsetFactor: -1,
-      polygonOffsetUnits: -1,
     }),
   );
 
