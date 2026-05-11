@@ -41,10 +41,10 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
 
 const CORE_RADIUS = 1.69;
 const STICKER_SCALE = 0.925;
-const SURFACE_LIFT = 0.0005;
+const STICKER_BASE_INSET = 0.006;
 const PIECE_DEPTH = 0.095;
 const STICKER_CORNER_RADIUS = 0.025;
-const STICKER_THICKNESS = 0.014;
+const STICKER_PROTRUSION = 0.007;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -367,7 +367,7 @@ function createCutPieceGroup(
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
   const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
+    .map((vertex) => vertex.sub(normal.clone().multiplyScalar(STICKER_BASE_INSET)));
   const roundedStickerVertices = createRoundedPolygonPoints(
     stickerVertices,
     STICKER_CORNER_RADIUS,
@@ -395,17 +395,46 @@ function createStickerSolid(
   material: THREE.Material,
 ) {
   const topVertices = baseVertices.map((vertex) =>
-    vertex.clone().add(normal.clone().multiplyScalar(STICKER_THICKNESS)),
+    vertex.clone().add(normal.clone().multiplyScalar(STICKER_BASE_INSET + STICKER_PROTRUSION)),
   );
   const group = new THREE.Group();
 
   group.add(new THREE.Mesh(createPolygonGeometry(topVertices), material));
   group.add(new THREE.Mesh(
-    createPolygonSideWallGeometry(topVertices, normal, STICKER_THICKNESS),
+    createSideWallBetweenPolygons(baseVertices, topVertices),
     material,
   ));
 
   return group;
+}
+
+function createSideWallBetweenPolygons(
+  bottomVertices: THREE.Vector3[],
+  topVertices: THREE.Vector3[],
+) {
+  const geometry = new THREE.BufferGeometry();
+  const indices: number[] = [];
+  const vertexCount = topVertices.length;
+
+  if (bottomVertices.length !== vertexCount) {
+    throw new Error("Side wall geometry requires matching polygons");
+  }
+
+  for (let i = 0; i < vertexCount; i += 1) {
+    const topCurrent = i;
+    const topNext = (i + 1) % vertexCount;
+    const bottomCurrent = vertexCount + i;
+    const bottomNext = vertexCount + ((i + 1) % vertexCount);
+
+    indices.push(topCurrent, bottomCurrent, bottomNext);
+    indices.push(topCurrent, bottomNext, topNext);
+  }
+
+  geometry.setFromPoints([...topVertices, ...bottomVertices]);
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
 }
 
 function createRoundedPolygonPoints(vertices: THREE.Vector3[], radius: number) {
