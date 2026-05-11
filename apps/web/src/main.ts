@@ -11,6 +11,12 @@ type PuzzleFacet = {
   center: THREE.Vector3;
 };
 
+type PieceFragment = {
+  key: string;
+  object: THREE.Group;
+  center: THREE.Vector3;
+};
+
 type FacetTurn = {
   facet: PuzzleFacet;
   startPosition: THREE.Vector3;
@@ -40,11 +46,12 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
 };
 
 const CORE_RADIUS = 1.69;
-const STICKER_SCALE = 0.925;
+const STICKER_SCALE = 0.9;
 const STICKER_BASE_INSET = 0.006;
 const PIECE_DEPTH = 0.095;
 const STICKER_CORNER_RADIUS = 0.025;
-const STICKER_PROTRUSION = 0.007;
+const STICKER_PROTRUSION = 0.004;
+const CORE_CORNER_RADIUS = 0.018;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -111,7 +118,7 @@ scene.add(light);
 scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
 const puzzleGroup = new THREE.Group();
-const puzzleFacets = [...createCoreFacets(), ...createPuzzleFacets()];
+const puzzleFacets = createVisualPieces();
 puzzleGroup.rotation.set(0.2, 0.35, -0.08);
 puzzleFacets.forEach((facet) => puzzleGroup.add(facet.object));
 puzzleGroup.add(createAxisMarkers());
@@ -230,12 +237,17 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
   };
 }
 
-function createCoreFacets(): PuzzleFacet[] {
+function createVisualPieces(): PuzzleFacet[] {
+  return groupPhysicalPieces([...createCoreFragments(), ...createStickerFragments()]);
+}
+
+function createCoreFragments(): PieceFragment[] {
   return createDodecahedronFaces(CORE_RADIUS).flatMap(({ normal, ordered }) =>
     splitFaceByCutPlanes(ordered).map((pieceVertices) => {
       const pieceCenter = centerLocal(pieceVertices);
 
       return {
+        key: pieceKey(pieceCenter),
         object: createCorePieceGroup(pieceVertices, pieceCenter, normal),
         center: pieceCenter,
       };
@@ -243,7 +255,7 @@ function createCoreFacets(): PuzzleFacet[] {
   );
 }
 
-function createPuzzleFacets(): PuzzleFacet[] {
+function createStickerFragments(): PieceFragment[] {
   return createDodecahedronFaces(1.7).flatMap(({ normal, ordered }, faceIndex) => {
     const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
 
@@ -251,11 +263,48 @@ function createPuzzleFacets(): PuzzleFacet[] {
       const pieceCenter = centerLocal(pieceVertices);
 
       return {
+        key: pieceKey(pieceCenter),
         object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color),
         center: pieceCenter,
       };
     });
   });
+}
+
+function groupPhysicalPieces(fragments: PieceFragment[]): PuzzleFacet[] {
+  const groups = new Map<string, PieceFragment[]>();
+
+  fragments.forEach((fragment) => {
+    const group = groups.get(fragment.key) ?? [];
+
+    group.push(fragment);
+    groups.set(fragment.key, group);
+  });
+
+  return [...groups.values()].map((fragmentsForPiece) => {
+    const pieceCenter = fragmentsForPiece
+      .reduce((sum, fragment) => sum.add(fragment.center), new THREE.Vector3())
+      .multiplyScalar(1 / fragmentsForPiece.length);
+    const group = new THREE.Group();
+
+    group.position.copy(pieceCenter);
+
+    fragmentsForPiece.forEach((fragment) => {
+      fragment.object.position.sub(pieceCenter);
+      group.add(fragment.object);
+    });
+
+    return {
+      object: group,
+      center: pieceCenter,
+    };
+  });
+}
+
+function pieceKey(center: THREE.Vector3) {
+  return (Object.keys(fixedAxes) as AxisId[])
+    .map((axisId) => `${axisId}${center.dot(fixedAxes[axisId]) >= 0 ? "+" : "-"}`)
+    .join("|");
 }
 
 function createDodecahedronFaces(radius: number) {
@@ -329,8 +378,9 @@ function createCorePieceGroup(
 ) {
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
+  const roundedLocalVertices = createRoundedPolygonPoints(localVertices, CORE_CORNER_RADIUS);
   const surface = new THREE.Mesh(
-    createPolygonGeometry(localVertices),
+    createPolygonGeometry(roundedLocalVertices),
     new THREE.MeshStandardMaterial({
       color: 0x090d12,
       roughness: 0.88,
@@ -345,7 +395,7 @@ function createCorePieceGroup(
   group.add(surface);
 
   const sideWall = new THREE.Mesh(
-    createPolygonSideWallGeometry(localVertices, normal, PIECE_DEPTH),
+    createPolygonSideWallGeometry(roundedLocalVertices, normal, PIECE_DEPTH),
     new THREE.MeshStandardMaterial({
       color: 0x090d12,
       roughness: 0.88,
