@@ -41,8 +41,8 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
 
 const CORE_RADIUS = 1.63;
 const PLASTIC_SCALE = 0.94;
-const STICKER_SCALE = 0.925;
-const SURFACE_LIFT = 0.001;
+const STICKER_SCALE = 0.84;
+const SURFACE_LIFT = 0.003;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
