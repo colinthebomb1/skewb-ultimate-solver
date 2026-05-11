@@ -39,11 +39,11 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
   B: new THREE.Vector3(-1, -1, 1).normalize(),
 };
 
-const CORE_RADIUS = 1.63;
+const CORE_RADIUS = 1.69;
 const PLASTIC_SCALE = 0.94;
 const STICKER_SCALE = 0.84;
-const PLASTIC_LIFT = 0.003;
-const STICKER_LIFT = 0.007;
+const SURFACE_LIFT = 0.0015;
+const PIECE_DEPTH = 0.095;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -309,6 +309,9 @@ function createCoreShell() {
       color: 0x090d12,
       roughness: 0.88,
       side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2,
     }),
   );
 }
@@ -322,21 +325,36 @@ function createCutPieceGroup(
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
   const backingVertices = shrinkPolygon(localVertices, PLASTIC_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(PLASTIC_LIFT)));
-  const backing = new THREE.Mesh(
-    createPolygonGeometry(backingVertices),
-    new THREE.MeshStandardMaterial({
-      color: 0x101820,
-      roughness: 0.75,
-      side: THREE.DoubleSide,
-    }),
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
+  const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
+  const plasticMaterial = new THREE.MeshStandardMaterial({
+    color: 0x101820,
+    roughness: 0.75,
+    side: THREE.DoubleSide,
+  });
+  const sideWall = new THREE.Mesh(
+    createPolygonSideWallGeometry(backingVertices, normal, PIECE_DEPTH),
+    plasticMaterial,
+  );
+  const underside = new THREE.Mesh(
+    createPolygonGeometry(
+      backingVertices.map((vertex) =>
+        vertex.clone().sub(normal.clone().multiplyScalar(PIECE_DEPTH)),
+      ),
+    ),
+    plasticMaterial,
+  );
+  const frame = new THREE.Mesh(
+    createPolygonFrameGeometry(backingVertices, stickerVertices),
+    plasticMaterial,
   );
 
   group.position.copy(center);
-  group.add(backing);
+  group.add(sideWall);
+  group.add(underside);
+  group.add(frame);
 
-  const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(STICKER_LIFT)));
   const sticker = new THREE.Mesh(
     createPolygonGeometry(stickerVertices),
     new THREE.MeshStandardMaterial({
@@ -351,6 +369,64 @@ function createCutPieceGroup(
   group.add(sticker);
 
   return group;
+}
+
+function createPolygonSideWallGeometry(
+  topVertices: THREE.Vector3[],
+  outwardNormal: THREE.Vector3,
+  depth: number,
+) {
+  const bottomVertices = topVertices.map((vertex) =>
+    vertex.clone().sub(outwardNormal.clone().multiplyScalar(depth)),
+  );
+  const geometry = new THREE.BufferGeometry();
+  const indices: number[] = [];
+  const vertexCount = topVertices.length;
+
+  for (let i = 0; i < vertexCount; i += 1) {
+    const topCurrent = i;
+    const topNext = (i + 1) % vertexCount;
+    const bottomCurrent = vertexCount + i;
+    const bottomNext = vertexCount + ((i + 1) % vertexCount);
+
+    indices.push(topCurrent, bottomCurrent, bottomNext);
+    indices.push(topCurrent, bottomNext, topNext);
+  }
+
+  geometry.setFromPoints([...topVertices, ...bottomVertices]);
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
+}
+
+function createPolygonFrameGeometry(
+  outerVertices: THREE.Vector3[],
+  innerVertices: THREE.Vector3[],
+) {
+  const geometry = new THREE.BufferGeometry();
+  const indices: number[] = [];
+  const vertexCount = outerVertices.length;
+
+  if (vertexCount !== innerVertices.length) {
+    throw new Error("Frame geometry requires matching outer and inner polygons");
+  }
+
+  for (let i = 0; i < vertexCount; i += 1) {
+    const outerCurrent = i;
+    const outerNext = (i + 1) % vertexCount;
+    const innerCurrent = vertexCount + i;
+    const innerNext = vertexCount + ((i + 1) % vertexCount);
+
+    indices.push(outerCurrent, outerNext, innerNext);
+    indices.push(outerCurrent, innerNext, innerCurrent);
+  }
+
+  geometry.setFromPoints([...outerVertices, ...innerVertices]);
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
 }
 
 function splitFaceByCutPlanes(vertices: THREE.Vector3[]) {
