@@ -14,13 +14,12 @@ type PuzzleFacet = {
 type FacetTurn = {
   facet: PuzzleFacet;
   startPosition: THREE.Vector3;
-  endPosition: THREE.Vector3;
   startQuaternion: THREE.Quaternion;
-  endQuaternion: THREE.Quaternion;
 };
 
 type TurnAnimation = {
   facets: FacetTurn[];
+  rotation: THREE.Quaternion;
   startedAt: number;
   durationMs: number;
   label: AxisId;
@@ -39,6 +38,12 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
   D: new THREE.Vector3(1, -1, -1).normalize(),
   B: new THREE.Vector3(-1, -1, 1).normalize(),
 };
+
+const CORE_RADIUS = 1.63;
+const PLASTIC_SCALE = 0.94;
+const STICKER_SCALE = 0.82;
+const PLASTIC_LIFT = 0.006;
+const STICKER_LIFT = 0.025;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -107,6 +112,7 @@ scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 const puzzleGroup = new THREE.Group();
 const puzzleFacets = createPuzzleFacets();
 puzzleGroup.rotation.set(0.2, 0.35, -0.08);
+puzzleGroup.add(createCoreShell());
 puzzleFacets.forEach((facet) => puzzleGroup.add(facet.object));
 puzzleGroup.add(createAxisMarkers());
 scene.add(puzzleGroup);
@@ -175,19 +181,24 @@ function updateTurnAnimation(now: number) {
 
   const t = Math.min((now - activeTurn.startedAt) / activeTurn.durationMs, 1);
   const eased = easeInOutCubic(t);
+  const frameRotation = new THREE.Quaternion().slerp(activeTurn.rotation, eased);
 
   activeTurn.facets.forEach((turn) => {
-    turn.facet.object.position.copy(turn.startPosition).lerp(turn.endPosition, eased);
+    turn.facet.object.position.copy(turn.startPosition).applyQuaternion(frameRotation);
     turn.facet.object.quaternion
-      .copy(turn.startQuaternion)
-      .slerp(turn.endQuaternion, eased);
+      .copy(frameRotation)
+      .multiply(turn.startQuaternion);
   });
 
   if (t >= 1) {
+    const completedTurn = activeTurn;
+
     activeTurn.facets.forEach((turn) => {
-      turn.facet.object.position.copy(turn.endPosition);
-      turn.facet.object.quaternion.copy(turn.endQuaternion);
-      turn.facet.center.copy(turn.endPosition);
+      turn.facet.object.position.copy(turn.startPosition).applyQuaternion(completedTurn.rotation);
+      turn.facet.object.quaternion
+        .copy(completedTurn.rotation)
+        .multiply(turn.startQuaternion);
+      turn.facet.center.copy(turn.facet.object.position);
     });
     activeTurn = undefined;
   }
@@ -206,14 +217,13 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
     return {
       facet,
       startPosition,
-      endPosition: startPosition.clone().applyQuaternion(rotation),
       startQuaternion,
-      endQuaternion: rotation.clone().multiply(startQuaternion),
     };
   });
 
   return {
     facets,
+    rotation,
     startedAt: now,
     durationMs: 620,
     label: axisId,
@@ -292,6 +302,17 @@ function createAxisMarkers() {
   return group;
 }
 
+function createCoreShell() {
+  return new THREE.Mesh(
+    new THREE.DodecahedronGeometry(CORE_RADIUS, 0),
+    new THREE.MeshStandardMaterial({
+      color: 0x090d12,
+      roughness: 0.88,
+      side: THREE.DoubleSide,
+    }),
+  );
+}
+
 function createCutPieceGroup(
   vertices: THREE.Vector3[],
   center: THREE.Vector3,
@@ -299,8 +320,11 @@ function createCutPieceGroup(
   color: THREE.Color,
 ) {
   const group = new THREE.Group();
+  const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
+  const backingVertices = shrinkPolygon(localVertices, PLASTIC_SCALE)
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(PLASTIC_LIFT)));
   const backing = new THREE.Mesh(
-    createPolygonGeometry(vertices.map((vertex) => vertex.clone().sub(center))),
+    createPolygonGeometry(backingVertices),
     new THREE.MeshStandardMaterial({
       color: 0x101820,
       roughness: 0.75,
@@ -311,10 +335,8 @@ function createCutPieceGroup(
   group.position.copy(center);
   group.add(backing);
 
-  const stickerVertices = shrinkPolygon(
-    vertices.map((vertex) => vertex.clone().sub(center)),
-    0.86,
-  ).map((vertex) => vertex.add(normal.clone().multiplyScalar(0.018)));
+  const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
+    .map((vertex) => vertex.add(normal.clone().multiplyScalar(STICKER_LIFT)));
   const sticker = new THREE.Mesh(
     createPolygonGeometry(stickerVertices),
     new THREE.MeshStandardMaterial({
