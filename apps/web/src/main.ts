@@ -110,9 +110,8 @@ scene.add(light);
 scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
 const puzzleGroup = new THREE.Group();
-const puzzleFacets = createPuzzleFacets();
+const puzzleFacets = [...createCoreFacets(), ...createPuzzleFacets()];
 puzzleGroup.rotation.set(0.2, 0.35, -0.08);
-puzzleGroup.add(createCoreShell());
 puzzleFacets.forEach((facet) => puzzleGroup.add(facet.object));
 puzzleGroup.add(createAxisMarkers());
 scene.add(puzzleGroup);
@@ -230,8 +229,36 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
   };
 }
 
+function createCoreFacets(): PuzzleFacet[] {
+  return createDodecahedronFaces(CORE_RADIUS).flatMap(({ normal, ordered }) =>
+    splitFaceByCutPlanes(ordered).map((pieceVertices) => {
+      const pieceCenter = centerLocal(pieceVertices);
+
+      return {
+        object: createCorePieceGroup(pieceVertices, pieceCenter, normal),
+        center: pieceCenter,
+      };
+    }),
+  );
+}
+
 function createPuzzleFacets(): PuzzleFacet[] {
-  const geometry = new THREE.DodecahedronGeometry(1.7, 0);
+  return createDodecahedronFaces(1.7).flatMap(({ normal, ordered }, faceIndex) => {
+    const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
+
+    return splitFaceByCutPlanes(ordered).map((pieceVertices) => {
+      const pieceCenter = centerLocal(pieceVertices);
+
+      return {
+        object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color),
+        center: pieceCenter,
+      };
+    });
+  });
+}
+
+function createDodecahedronFaces(radius: number) {
+  const geometry = new THREE.DodecahedronGeometry(radius, 0);
   const positions = geometry.getAttribute("position");
   const faceGroups = new Map<string, THREE.Vector3[]>();
   const faceNormals = new Map<string, THREE.Vector3>();
@@ -259,23 +286,15 @@ function createPuzzleFacets(): PuzzleFacet[] {
     faceGroups.get(key)!.push(a, b, c);
   }
 
-  return [...faceGroups.entries()].flatMap(([key, triangleVertices], faceIndex) => {
+  return [...faceGroups.entries()].map(([key, triangleVertices]) => {
     const normal = faceNormals.get(key)!;
     const vertices = uniqueVertices(triangleVertices);
     const center = vertices
       .reduce((sum, vertex) => sum.add(vertex), new THREE.Vector3())
       .multiplyScalar(1 / vertices.length);
     const ordered = sortFaceVertices(vertices, center, normal);
-    const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
 
-    return splitFaceByCutPlanes(ordered).map((pieceVertices) => {
-      const pieceCenter = centerLocal(pieceVertices);
-
-      return {
-        object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color),
-        center: pieceCenter,
-      };
-    });
+    return { normal, ordered };
   });
 }
 
@@ -302,9 +321,15 @@ function createAxisMarkers() {
   return group;
 }
 
-function createCoreShell() {
-  return new THREE.Mesh(
-    new THREE.DodecahedronGeometry(CORE_RADIUS, 0),
+function createCorePieceGroup(
+  vertices: THREE.Vector3[],
+  center: THREE.Vector3,
+  normal: THREE.Vector3,
+) {
+  const group = new THREE.Group();
+  const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
+  const surface = new THREE.Mesh(
+    createPolygonGeometry(localVertices),
     new THREE.MeshStandardMaterial({
       color: 0x090d12,
       roughness: 0.88,
@@ -314,6 +339,22 @@ function createCoreShell() {
       polygonOffsetUnits: 2,
     }),
   );
+
+  group.position.copy(center);
+  group.add(surface);
+
+  const sideWall = new THREE.Mesh(
+    createPolygonSideWallGeometry(localVertices, normal, PIECE_DEPTH),
+    new THREE.MeshStandardMaterial({
+      color: 0x090d12,
+      roughness: 0.88,
+      side: THREE.DoubleSide,
+    }),
+  );
+
+  group.add(sideWall);
+
+  return group;
 }
 
 function createCutPieceGroup(
