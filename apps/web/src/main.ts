@@ -6,12 +6,24 @@ import "./style.css";
 
 type AxisId = "L" | "R" | "D" | "B";
 
+type PuzzleFacet = {
+  object: THREE.Group;
+  center: THREE.Vector3;
+};
+
+type FacetTurn = {
+  facet: PuzzleFacet;
+  startPosition: THREE.Vector3;
+  endPosition: THREE.Vector3;
+  startQuaternion: THREE.Quaternion;
+  endQuaternion: THREE.Quaternion;
+};
+
 type TurnAnimation = {
-  start: THREE.Quaternion;
-  end: THREE.Quaternion;
+  facets: FacetTurn[];
   startedAt: number;
   durationMs: number;
-  label: string;
+  label: AxisId;
 };
 
 const faceColors = [
@@ -19,6 +31,8 @@ const faceColors = [
   0x8e44ad, 0x2dd4bf, 0x1f2937, 0xf472b6, 0x9ca3af, 0x8b5e34,
 ];
 
+// The vectors are dodecahedron vertices. These represent the four fixed-corner
+// axes used by Jaap-style L/R/D/B notation.
 const fixedAxes: Record<AxisId, THREE.Vector3> = {
   L: new THREE.Vector3(-1, 1, -1).normalize(),
   R: new THREE.Vector3(1, 1, 1).normalize(),
@@ -91,12 +105,11 @@ scene.add(light);
 scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
 const puzzleGroup = new THREE.Group();
-const puzzleMesh = createColoredDodecahedron();
-puzzleMesh.rotation.set(0.2, 0.35, -0.08);
-puzzleGroup.add(puzzleMesh);
-puzzleGroup.add(createEdgeLines(puzzleMesh.geometry));
+const puzzleFacets = createPuzzleFacets();
+puzzleGroup.rotation.set(0.2, 0.35, -0.08);
+puzzleFacets.forEach((facet) => puzzleGroup.add(facet.object));
+puzzleGroup.add(createAxisMarkers());
 scene.add(puzzleGroup);
-scene.add(createAxisMarkers());
 
 let activeTurn: TurnAnimation | undefined;
 const turnQueue: AxisId[] = [];
@@ -157,41 +170,62 @@ function updateTurnAnimation(now: number) {
     }
 
     activeTurn = createTurnAnimation(next, now);
-    document.querySelector("#move-status")!.textContent = activeTurn.label;
+    document.querySelector("#move-status")!.textContent =
+      `${activeTurn.label} (${activeTurn.facets.length} facets)`;
   }
 
   const t = Math.min((now - activeTurn.startedAt) / activeTurn.durationMs, 1);
   const eased = easeInOutCubic(t);
-  puzzleGroup.quaternion.copy(activeTurn.start).slerp(activeTurn.end, eased);
+
+  activeTurn.facets.forEach((turn) => {
+    turn.facet.object.position.copy(turn.startPosition).lerp(turn.endPosition, eased);
+    turn.facet.object.quaternion
+      .copy(turn.startQuaternion)
+      .slerp(turn.endQuaternion, eased);
+  });
 
   if (t >= 1) {
-    puzzleGroup.quaternion.copy(activeTurn.end);
+    activeTurn.facets.forEach((turn) => {
+      turn.facet.object.position.copy(turn.endPosition);
+      turn.facet.object.quaternion.copy(turn.endQuaternion);
+      turn.facet.center.copy(turn.endPosition);
+    });
     activeTurn = undefined;
   }
 }
 
 function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
-  const turn = new THREE.Quaternion().setFromAxisAngle(
+  // Clockwise is viewed from outside the fixed corner looking toward the center.
+  const rotation = new THREE.Quaternion().setFromAxisAngle(
     fixedAxes[axisId],
-    (Math.PI * 2) / 3,
+    (-Math.PI * 2) / 3,
   );
-  const start = puzzleGroup.quaternion.clone();
-  const end = start.clone().premultiply(turn);
+  const facets = selectTurningFacets(fixedAxes[axisId]).map((facet) => {
+      const startPosition = facet.object.position.clone();
+      const startQuaternion = facet.object.quaternion.clone();
+
+      return {
+        facet,
+        startPosition,
+        endPosition: startPosition.clone().applyQuaternion(rotation),
+        startQuaternion,
+        endQuaternion: rotation.clone().multiply(startQuaternion),
+      };
+  });
 
   return {
-    start,
-    end,
+    facets,
     startedAt: now,
     durationMs: 620,
     label: axisId,
   };
 }
 
-function createColoredDodecahedron() {
-  const geometry = new THREE.DodecahedronGeometry(1.62, 0).toNonIndexed();
+function createPuzzleFacets(): PuzzleFacet[] {
+  const geometry = new THREE.DodecahedronGeometry(1.7, 0).toNonIndexed();
   const positions = geometry.getAttribute("position");
-  const colors: number[] = [];
   const faceMap = new Map<string, number>();
+  const facets: PuzzleFacet[] = [];
 
   for (let i = 0; i < positions.count; i += 3) {
     const a = new THREE.Vector3().fromBufferAttribute(positions, i);
@@ -201,42 +235,60 @@ function createColoredDodecahedron() {
       .subVectors(b, a)
       .cross(new THREE.Vector3().subVectors(c, a))
       .normalize();
-    const key = normal
-      .toArray()
-      .map((value) => Math.round(value * 100) / 100)
-      .join(",");
-    const faceIndex = getOrCreateFaceIndex(faceMap, key);
+    const faceIndex = getOrCreateFaceIndex(faceMap, normalKey(normal));
     const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
+    const center = new THREE.Vector3()
+      .add(a)
+      .add(b)
+      .add(c)
+      .multiplyScalar(1 / 3);
+    const facetGeometry = new THREE.BufferGeometry();
 
-    for (let vertex = 0; vertex < 3; vertex += 1) {
-      colors.push(color.r, color.g, color.b);
-    }
+    facetGeometry.setFromPoints([
+      a.clone().sub(center),
+      b.clone().sub(center),
+      c.clone().sub(center),
+    ]);
+    facetGeometry.setIndex([0, 1, 2]);
+    facetGeometry.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(
+      facetGeometry,
+      new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.62,
+        metalness: 0.04,
+        side: THREE.DoubleSide,
+        flatShading: true,
+      }),
+    );
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(facetGeometry),
+      new THREE.LineBasicMaterial({
+        color: 0x1b1f23,
+        transparent: true,
+        opacity: 0.42,
+      }),
+    );
+    const group = new THREE.Group();
+
+    group.position.copy(center);
+    group.add(mesh);
+    group.add(edges);
+
+    facets.push({
+      object: group,
+      center,
+    });
   }
 
-  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-  geometry.computeVertexNormals();
-
-  return new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.62,
-      metalness: 0.04,
-      flatShading: true,
-    }),
-  );
+  return facets;
 }
 
-function createEdgeLines(geometry: THREE.BufferGeometry) {
-  const edges = new THREE.EdgesGeometry(geometry, 12);
-  return new THREE.LineSegments(
-    edges,
-    new THREE.LineBasicMaterial({
-      color: 0x1b1f23,
-      transparent: true,
-      opacity: 0.42,
-    }),
-  );
+function selectTurningFacets(axis: THREE.Vector3) {
+  return [...puzzleFacets]
+    .sort((a, b) => b.center.dot(axis) - a.center.dot(axis))
+    .slice(0, puzzleFacets.length / 2);
 }
 
 function createAxisMarkers() {
@@ -247,7 +299,7 @@ function createAxisMarkers() {
       new THREE.SphereGeometry(0.055, 18, 12),
       new THREE.MeshStandardMaterial({ color: 0x101820, roughness: 0.4 }),
     );
-    marker.position.copy(axis.clone().multiplyScalar(2.15));
+    marker.position.copy(axis.clone().multiplyScalar(2.2));
     marker.name = label;
     group.add(marker);
   }
@@ -265,6 +317,13 @@ function getOrCreateFaceIndex(faceMap: Map<string, number>, key: string) {
   const next = faceMap.size;
   faceMap.set(key, next);
   return next;
+}
+
+function normalKey(normal: THREE.Vector3) {
+  return normal
+    .toArray()
+    .map((value) => Math.round(value * 100) / 100)
+    .join(",");
 }
 
 function easeInOutCubic(t: number) {
