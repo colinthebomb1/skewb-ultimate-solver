@@ -40,10 +40,11 @@ const fixedAxes: Record<AxisId, THREE.Vector3> = {
 };
 
 const CORE_RADIUS = 1.69;
-const PLASTIC_SCALE = 0.94;
-const STICKER_SCALE = 0.84;
-const SURFACE_LIFT = 0.0015;
+const STICKER_SCALE = 0.925;
+const SURFACE_LIFT = 0.0005;
 const PIECE_DEPTH = 0.095;
+const STICKER_CORNER_RADIUS = 0.025;
+const STICKER_THICKNESS = 0.014;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -365,51 +366,91 @@ function createCutPieceGroup(
 ) {
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
-  const backingVertices = shrinkPolygon(localVertices, PLASTIC_SCALE)
-    .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
   const stickerVertices = shrinkPolygon(localVertices, STICKER_SCALE)
     .map((vertex) => vertex.add(normal.clone().multiplyScalar(SURFACE_LIFT)));
-  const plasticMaterial = new THREE.MeshStandardMaterial({
-    color: 0x101820,
-    roughness: 0.75,
-    side: THREE.DoubleSide,
-  });
-  const sideWall = new THREE.Mesh(
-    createPolygonSideWallGeometry(backingVertices, normal, PIECE_DEPTH),
-    plasticMaterial,
-  );
-  const underside = new THREE.Mesh(
-    createPolygonGeometry(
-      backingVertices.map((vertex) =>
-        vertex.clone().sub(normal.clone().multiplyScalar(PIECE_DEPTH)),
-      ),
-    ),
-    plasticMaterial,
-  );
-  const frame = new THREE.Mesh(
-    createPolygonFrameGeometry(backingVertices, stickerVertices),
-    plasticMaterial,
+  const roundedStickerVertices = createRoundedPolygonPoints(
+    stickerVertices,
+    STICKER_CORNER_RADIUS,
   );
 
   group.position.copy(center);
-  group.add(sideWall);
-  group.add(underside);
-  group.add(frame);
 
-  const sticker = new THREE.Mesh(
-    createPolygonGeometry(stickerVertices),
-    new THREE.MeshStandardMaterial({
-      color,
-      roughness: 0.52,
-      metalness: 0.02,
-      side: THREE.DoubleSide,
-      flatShading: true,
-    }),
-  );
+  const stickerMaterial = new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.52,
+    metalness: 0.02,
+    side: THREE.DoubleSide,
+    flatShading: true,
+  });
+  const sticker = createStickerSolid(roundedStickerVertices, normal, stickerMaterial);
 
   group.add(sticker);
 
   return group;
+}
+
+function createStickerSolid(
+  baseVertices: THREE.Vector3[],
+  normal: THREE.Vector3,
+  material: THREE.Material,
+) {
+  const topVertices = baseVertices.map((vertex) =>
+    vertex.clone().add(normal.clone().multiplyScalar(STICKER_THICKNESS)),
+  );
+  const group = new THREE.Group();
+
+  group.add(new THREE.Mesh(createPolygonGeometry(topVertices), material));
+  group.add(new THREE.Mesh(
+    createPolygonSideWallGeometry(topVertices, normal, STICKER_THICKNESS),
+    material,
+  ));
+
+  return group;
+}
+
+function createRoundedPolygonPoints(vertices: THREE.Vector3[], radius: number) {
+  const rounded: THREE.Vector3[] = [];
+
+  vertices.forEach((current, index) => {
+    const previous = vertices[(index + vertices.length - 1) % vertices.length]!;
+    const next = vertices[(index + 1) % vertices.length]!;
+    const previousEdgeLength = current.distanceTo(previous);
+    const nextEdgeLength = current.distanceTo(next);
+    const cornerDistance = Math.min(radius, previousEdgeLength * 0.35, nextEdgeLength * 0.35);
+    const fromPrevious = current
+      .clone()
+      .add(previous.clone().sub(current).normalize().multiplyScalar(cornerDistance));
+    const towardNext = current
+      .clone()
+      .add(next.clone().sub(current).normalize().multiplyScalar(cornerDistance));
+    const segments = 5;
+
+    rounded.push(fromPrevious);
+
+    for (let segment = 1; segment < segments; segment += 1) {
+      const t = segment / segments;
+      rounded.push(quadraticBezier(fromPrevious, current, towardNext, t));
+    }
+
+    rounded.push(towardNext);
+  });
+
+  return rounded;
+}
+
+function quadraticBezier(
+  start: THREE.Vector3,
+  control: THREE.Vector3,
+  end: THREE.Vector3,
+  t: number,
+) {
+  const oneMinusT = 1 - t;
+
+  return start
+    .clone()
+    .multiplyScalar(oneMinusT * oneMinusT)
+    .add(control.clone().multiplyScalar(2 * oneMinusT * t))
+    .add(end.clone().multiplyScalar(t * t));
 }
 
 function createPolygonSideWallGeometry(
@@ -435,35 +476,6 @@ function createPolygonSideWallGeometry(
   }
 
   geometry.setFromPoints([...topVertices, ...bottomVertices]);
-  geometry.setIndex(indices);
-  geometry.computeVertexNormals();
-
-  return geometry;
-}
-
-function createPolygonFrameGeometry(
-  outerVertices: THREE.Vector3[],
-  innerVertices: THREE.Vector3[],
-) {
-  const geometry = new THREE.BufferGeometry();
-  const indices: number[] = [];
-  const vertexCount = outerVertices.length;
-
-  if (vertexCount !== innerVertices.length) {
-    throw new Error("Frame geometry requires matching outer and inner polygons");
-  }
-
-  for (let i = 0; i < vertexCount; i += 1) {
-    const outerCurrent = i;
-    const outerNext = (i + 1) % vertexCount;
-    const innerCurrent = vertexCount + i;
-    const innerNext = vertexCount + ((i + 1) % vertexCount);
-
-    indices.push(outerCurrent, outerNext, innerNext);
-    indices.push(outerCurrent, innerNext, innerCurrent);
-  }
-
-  geometry.setFromPoints([...outerVertices, ...innerVertices]);
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
 
