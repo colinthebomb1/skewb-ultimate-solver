@@ -1,0 +1,21 @@
+{
+  "name": "@skewb-ultimate/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "dependencies": {
+    "@skewb-ultimate/puzzle-core": "0.0.0",
+    "@skewb-ultimate/solvers": "0.0.0",
+    "three": "^0.176.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5"
+  }
+}
+

@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/puzzle-core" },
+    { "path": "./packages/solvers" },
+    { "path": "./packages/bench" },
+    { "path": "./apps/web" }
+  ]
+}

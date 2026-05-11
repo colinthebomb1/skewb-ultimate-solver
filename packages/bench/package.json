@@ -1,0 +1,14 @@
+{
+  "name": "@skewb-ultimate/bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@skewb-ultimate/puzzle-core": "0.0.0",
+    "@skewb-ultimate/solvers": "0.0.0"
+  }
+}
+
