@@ -54,7 +54,7 @@ app.innerHTML = `
         <p class="eyebrow">Skewb Ultimate Solver Lab</p>
         <h1>Skewb Ultimate visual lab</h1>
         <p class="summary">
-          A 12-color dodecahedron shell with Jaap-style move axes. Physical
+          A 12-color deep-cut dodecahedron with Jaap-style move axes. Physical
           piece cycles come next after mapping the real puzzle.
         </p>
       </div>
@@ -130,7 +130,7 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
 const parsed = parseAlgorithm("L R' D B");
 const baseline = randomWalkSolver();
 
-document.querySelector("#state-status")!.textContent = "12-face shell";
+document.querySelector("#state-status")!.textContent = "cut face model";
 document.querySelector("#notation-status")!.textContent = parsed
   .map((move) => `${move.axis}${move.amount < 0 ? "'" : ""}`)
   .join(" ");
@@ -200,16 +200,16 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
     (-Math.PI * 2) / 3,
   );
   const facets = selectTurningFacets(fixedAxes[axisId]).map((facet) => {
-      const startPosition = facet.object.position.clone();
-      const startQuaternion = facet.object.quaternion.clone();
+    const startPosition = facet.object.position.clone();
+    const startQuaternion = facet.object.quaternion.clone();
 
-      return {
-        facet,
-        startPosition,
-        endPosition: startPosition.clone().applyQuaternion(rotation),
-        startQuaternion,
-        endQuaternion: rotation.clone().multiply(startQuaternion),
-      };
+    return {
+      facet,
+      startPosition,
+      endPosition: startPosition.clone().applyQuaternion(rotation),
+      startQuaternion,
+      endQuaternion: rotation.clone().multiply(startQuaternion),
+    };
   });
 
   return {
@@ -234,6 +234,11 @@ function createPuzzleFacets(): PuzzleFacet[] {
       .subVectors(b, a)
       .cross(new THREE.Vector3().subVectors(c, a))
       .normalize();
+
+    if (normal.dot(a.clone().add(b).add(c)) < 0) {
+      normal.negate();
+    }
+
     const key = normalKey(normal);
 
     if (!faceGroups.has(key)) {
@@ -244,52 +249,28 @@ function createPuzzleFacets(): PuzzleFacet[] {
     faceGroups.get(key)!.push(a, b, c);
   }
 
-  return [...faceGroups.entries()].map(([key, triangleVertices], faceIndex) => {
+  return [...faceGroups.entries()].flatMap(([key, triangleVertices], faceIndex) => {
     const normal = faceNormals.get(key)!;
     const vertices = uniqueVertices(triangleVertices);
     const center = vertices
       .reduce((sum, vertex) => sum.add(vertex), new THREE.Vector3())
       .multiplyScalar(1 / vertices.length);
     const ordered = sortFaceVertices(vertices, center, normal);
-    const facetGeometry = createPentagonGeometry(ordered, center);
     const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
-    const mesh = new THREE.Mesh(
-      facetGeometry,
-      new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.62,
-        metalness: 0.04,
-        side: THREE.DoubleSide,
-        flatShading: true,
-      }),
-    );
-    const boundary = new THREE.LineLoop(
-      new THREE.BufferGeometry().setFromPoints(
-        ordered.map((vertex) => vertex.clone().sub(center)),
-      ),
-      new THREE.LineBasicMaterial({
-        color: 0x1b1f23,
-        transparent: true,
-        opacity: 0.7,
-      }),
-    );
-    const group = new THREE.Group();
 
-    group.position.copy(center);
-    group.add(mesh);
-    group.add(boundary);
+    return splitFaceByCutPlanes(ordered).map((pieceVertices) => {
+      const pieceCenter = centerLocal(pieceVertices);
 
-    return {
-      object: group,
-      center,
-    };
+      return {
+        object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color),
+        center: pieceCenter,
+      };
+    });
   });
 }
 
 function selectTurningFacets(axis: THREE.Vector3) {
-  return [...puzzleFacets]
-    .sort((a, b) => b.center.dot(axis) - a.center.dot(axis))
-    .slice(0, puzzleFacets.length / 2);
+  return puzzleFacets.filter((facet) => facet.center.dot(axis) > 0.0001);
 }
 
 function createAxisMarkers() {
@@ -298,7 +279,10 @@ function createAxisMarkers() {
   for (const [label, axis] of Object.entries(fixedAxes)) {
     const marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.055, 18, 12),
-      new THREE.MeshStandardMaterial({ color: 0x101820, roughness: 0.4 }),
+      new THREE.MeshStandardMaterial({
+        color: 0x101820,
+        roughness: 0.4,
+      }),
     );
     marker.position.copy(axis.clone().multiplyScalar(2.2));
     marker.name = label;
@@ -308,12 +292,121 @@ function createAxisMarkers() {
   return group;
 }
 
-function createPentagonGeometry(vertices: THREE.Vector3[], center: THREE.Vector3) {
+function createCutPieceGroup(
+  vertices: THREE.Vector3[],
+  center: THREE.Vector3,
+  normal: THREE.Vector3,
+  color: THREE.Color,
+) {
+  const group = new THREE.Group();
+  const backing = new THREE.Mesh(
+    createPolygonGeometry(vertices.map((vertex) => vertex.clone().sub(center))),
+    new THREE.MeshStandardMaterial({
+      color: 0x101820,
+      roughness: 0.75,
+      side: THREE.DoubleSide,
+    }),
+  );
+
+  group.position.copy(center);
+  group.add(backing);
+
+  const stickerVertices = shrinkPolygon(
+    vertices.map((vertex) => vertex.clone().sub(center)),
+    0.86,
+  ).map((vertex) => vertex.add(normal.clone().multiplyScalar(0.018)));
+  const sticker = new THREE.Mesh(
+    createPolygonGeometry(stickerVertices),
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.52,
+      metalness: 0.02,
+      side: THREE.DoubleSide,
+      flatShading: true,
+    }),
+  );
+
+  group.add(sticker);
+
+  return group;
+}
+
+function splitFaceByCutPlanes(vertices: THREE.Vector3[]) {
+  let pieces = [vertices];
+
+  Object.values(fixedAxes).forEach((axis) => {
+    pieces = pieces.flatMap((piece) => splitPolygonByPlane(piece, axis));
+  });
+
+  return pieces.filter((piece) => piece.length >= 3);
+}
+
+function splitPolygonByPlane(vertices: THREE.Vector3[], planeNormal: THREE.Vector3) {
+  const positive = clipPolygonByHalfSpace(vertices, planeNormal, 1);
+  const negative = clipPolygonByHalfSpace(vertices, planeNormal, -1);
+
+  return [positive, negative].filter((piece) => piece.length >= 3);
+}
+
+function clipPolygonByHalfSpace(
+  vertices: THREE.Vector3[],
+  planeNormal: THREE.Vector3,
+  side: 1 | -1,
+) {
+  const clipped: THREE.Vector3[] = [];
+  const signedDistance = (vertex: THREE.Vector3) => vertex.dot(planeNormal) * side;
+  const includesVertex = (vertex: THREE.Vector3) => signedDistance(vertex) >= -0.0001;
+
+  vertices.forEach((current, index) => {
+    const previous = vertices[(index + vertices.length - 1) % vertices.length]!;
+    const currentInside = includesVertex(current);
+    const previousInside = includesVertex(previous);
+
+    if (currentInside !== previousInside) {
+      clipped.push(intersectSegmentWithPlane(previous, current, planeNormal));
+    }
+
+    if (currentInside) {
+      clipped.push(current.clone());
+    }
+  });
+
+  return removeDuplicateVertices(clipped);
+}
+
+function intersectSegmentWithPlane(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  planeNormal: THREE.Vector3,
+) {
+  const startDistance = start.dot(planeNormal);
+  const endDistance = end.dot(planeNormal);
+  const amount = startDistance / (startDistance - endDistance);
+
+  return start.clone().lerp(end, amount);
+}
+
+function removeDuplicateVertices(vertices: THREE.Vector3[]) {
+  const deduped: THREE.Vector3[] = [];
+
+  vertices.forEach((vertex) => {
+    const previous = deduped.at(-1);
+
+    if (!previous || previous.distanceToSquared(vertex) > 0.000001) {
+      deduped.push(vertex);
+    }
+  });
+
+  if (deduped.length > 1 && deduped[0]!.distanceToSquared(deduped.at(-1)!) <= 0.000001) {
+    deduped.pop();
+  }
+
+  return deduped;
+}
+
+function createPolygonGeometry(vertices: THREE.Vector3[]) {
   const geometry = new THREE.BufferGeometry();
-  const localVertices = [
-    new THREE.Vector3(0, 0, 0),
-    ...vertices.map((vertex) => vertex.clone().sub(center)),
-  ];
+  const localVertices = [centerLocal(vertices), ...vertices];
   const indices: number[] = [];
 
   for (let i = 1; i <= vertices.length; i += 1) {
@@ -325,6 +418,18 @@ function createPentagonGeometry(vertices: THREE.Vector3[], center: THREE.Vector3
   geometry.computeVertexNormals();
 
   return geometry;
+}
+
+function shrinkPolygon(vertices: THREE.Vector3[], scale: number) {
+  const center = centerLocal(vertices);
+
+  return vertices.map((vertex) => center.clone().lerp(vertex, scale));
+}
+
+function centerLocal(vertices: THREE.Vector3[]) {
+  return vertices
+    .reduce((sum, vertex) => sum.add(vertex), new THREE.Vector3())
+    .multiplyScalar(1 / vertices.length);
 }
 
 function uniqueVertices(vertices: THREE.Vector3[]) {
