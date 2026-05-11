@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { createSolvedState, parseAlgorithm } from "@skewb-ultimate/puzzle-core";
+import { parseAlgorithm } from "@skewb-ultimate/puzzle-core";
 import { randomWalkSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
@@ -127,11 +127,10 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
   turnQueue.push("L", "R", "D", "B", "R", "L");
 });
 
-const state = createSolvedState();
 const parsed = parseAlgorithm("L R' D B");
 const baseline = randomWalkSolver();
 
-document.querySelector("#state-status")!.textContent = state.kind;
+document.querySelector("#state-status")!.textContent = "12-face shell";
 document.querySelector("#notation-status")!.textContent = parsed
   .map((move) => `${move.axis}${move.amount < 0 ? "'" : ""}`)
   .join(" ");
@@ -222,10 +221,10 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
 }
 
 function createPuzzleFacets(): PuzzleFacet[] {
-  const geometry = new THREE.DodecahedronGeometry(1.7, 0).toNonIndexed();
+  const geometry = new THREE.DodecahedronGeometry(1.7, 0);
   const positions = geometry.getAttribute("position");
-  const faceMap = new Map<string, number>();
-  const facets: PuzzleFacet[] = [];
+  const faceGroups = new Map<string, THREE.Vector3[]>();
+  const faceNormals = new Map<string, THREE.Vector3>();
 
   for (let i = 0; i < positions.count; i += 3) {
     const a = new THREE.Vector3().fromBufferAttribute(positions, i);
@@ -235,23 +234,25 @@ function createPuzzleFacets(): PuzzleFacet[] {
       .subVectors(b, a)
       .cross(new THREE.Vector3().subVectors(c, a))
       .normalize();
-    const faceIndex = getOrCreateFaceIndex(faceMap, normalKey(normal));
+    const key = normalKey(normal);
+
+    if (!faceGroups.has(key)) {
+      faceGroups.set(key, []);
+      faceNormals.set(key, normal);
+    }
+
+    faceGroups.get(key)!.push(a, b, c);
+  }
+
+  return [...faceGroups.entries()].map(([key, triangleVertices], faceIndex) => {
+    const normal = faceNormals.get(key)!;
+    const vertices = uniqueVertices(triangleVertices);
+    const center = vertices
+      .reduce((sum, vertex) => sum.add(vertex), new THREE.Vector3())
+      .multiplyScalar(1 / vertices.length);
+    const ordered = sortFaceVertices(vertices, center, normal);
+    const facetGeometry = createPentagonGeometry(ordered, center);
     const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
-    const center = new THREE.Vector3()
-      .add(a)
-      .add(b)
-      .add(c)
-      .multiplyScalar(1 / 3);
-    const facetGeometry = new THREE.BufferGeometry();
-
-    facetGeometry.setFromPoints([
-      a.clone().sub(center),
-      b.clone().sub(center),
-      c.clone().sub(center),
-    ]);
-    facetGeometry.setIndex([0, 1, 2]);
-    facetGeometry.computeVertexNormals();
-
     const mesh = new THREE.Mesh(
       facetGeometry,
       new THREE.MeshStandardMaterial({
@@ -262,27 +263,27 @@ function createPuzzleFacets(): PuzzleFacet[] {
         flatShading: true,
       }),
     );
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(facetGeometry),
+    const boundary = new THREE.LineLoop(
+      new THREE.BufferGeometry().setFromPoints(
+        ordered.map((vertex) => vertex.clone().sub(center)),
+      ),
       new THREE.LineBasicMaterial({
         color: 0x1b1f23,
         transparent: true,
-        opacity: 0.42,
+        opacity: 0.7,
       }),
     );
     const group = new THREE.Group();
 
     group.position.copy(center);
     group.add(mesh);
-    group.add(edges);
+    group.add(boundary);
 
-    facets.push({
+    return {
       object: group,
       center,
-    });
-  }
-
-  return facets;
+    };
+  });
 }
 
 function selectTurningFacets(axis: THREE.Vector3) {
@@ -307,16 +308,57 @@ function createAxisMarkers() {
   return group;
 }
 
-function getOrCreateFaceIndex(faceMap: Map<string, number>, key: string) {
-  const existing = faceMap.get(key);
+function createPentagonGeometry(vertices: THREE.Vector3[], center: THREE.Vector3) {
+  const geometry = new THREE.BufferGeometry();
+  const localVertices = [
+    new THREE.Vector3(0, 0, 0),
+    ...vertices.map((vertex) => vertex.clone().sub(center)),
+  ];
+  const indices: number[] = [];
 
-  if (existing !== undefined) {
-    return existing;
+  for (let i = 1; i <= vertices.length; i += 1) {
+    indices.push(0, i, i === vertices.length ? 1 : i + 1);
   }
 
-  const next = faceMap.size;
-  faceMap.set(key, next);
-  return next;
+  geometry.setFromPoints(localVertices);
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  return geometry;
+}
+
+function uniqueVertices(vertices: THREE.Vector3[]) {
+  const unique = new Map<string, THREE.Vector3>();
+
+  vertices.forEach((vertex) => {
+    unique.set(
+      vertex
+        .toArray()
+        .map((value) => value.toFixed(5))
+        .join(","),
+      vertex,
+    );
+  });
+
+  return [...unique.values()];
+}
+
+function sortFaceVertices(
+  vertices: THREE.Vector3[],
+  center: THREE.Vector3,
+  normal: THREE.Vector3,
+) {
+  const basisX = vertices[0]!.clone().sub(center).normalize();
+  const basisY = normal.clone().cross(basisX).normalize();
+
+  return [...vertices].sort((left, right) => {
+    const leftOffset = left.clone().sub(center);
+    const rightOffset = right.clone().sub(center);
+    const leftAngle = Math.atan2(leftOffset.dot(basisY), leftOffset.dot(basisX));
+    const rightAngle = Math.atan2(rightOffset.dot(basisY), rightOffset.dot(basisX));
+
+    return leftAngle - rightAngle;
+  });
 }
 
 function normalKey(normal: THREE.Vector3) {
