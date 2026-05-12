@@ -7,6 +7,7 @@ import {
   parseAlgorithm,
   parseMove,
   simplifyAlgorithm,
+  MOVE_AXES,
   type Move,
   type MoveAxis,
 } from "@skewb-ultimate/puzzle-core";
@@ -40,6 +41,11 @@ type TurnAnimation = {
   move: Move;
 };
 
+type QueuedTurn = {
+  move: Move;
+  durationMs: number;
+};
+
 const faceColors = [
   0xffffff, 0xf4d03f, 0xd9342b, 0x2274a5, 0x2fb344, 0xf28c28,
   0x8e44ad, 0x2dd4bf, 0x1f2937, 0xf472b6, 0x9ca3af, 0x8b5e34,
@@ -61,6 +67,9 @@ const PIECE_DEPTH = 0.095;
 const STICKER_CORNER_RADIUS = 0.025;
 const STICKER_PROTRUSION = 0.004;
 const CORE_CORNER_RADIUS = 0.018;
+const SCRAMBLE_LENGTH = 20;
+const DEFAULT_TURN_DURATION_MS = 420;
+const FAST_TURN_DURATION_MS = 300;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -162,7 +171,7 @@ puzzleGroup.add(createAxisMarkers());
 scene.add(puzzleGroup);
 
 let activeTurn: TurnAnimation | undefined;
-const turnQueue: Move[] = [];
+const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
@@ -179,23 +188,23 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
     const moveToken = button.dataset.move;
 
     if (moveToken) {
-      enqueueMoves([parseMove(moveToken)]);
+      enqueueMoves([parseMove(moveToken)], DEFAULT_TURN_DURATION_MS);
     }
   });
 });
 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
-  const scramble = parseAlgorithm("L R' D B R L'");
+  const scramble = createRandomScramble(SCRAMBLE_LENGTH);
 
   setInputStatus(`Scramble: ${formatAlgorithm(scramble)}`);
-  enqueueMoves(scramble);
+  enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
 document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
   const projectedHistory = simplifyAlgorithm([
     ...moveHistory,
     ...(activeTurn ? [activeTurn.move] : []),
-    ...turnQueue,
+    ...turnQueue.map((turn) => turn.move),
   ]);
   const solution = invertAlgorithm(projectedHistory);
 
@@ -207,7 +216,7 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
 
   solutionStatus.textContent = formatAlgorithm(solution);
   setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
-  enqueueMoves(solution);
+  enqueueMoves(solution, FAST_TURN_DURATION_MS);
 });
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
@@ -229,7 +238,7 @@ algorithmForm.addEventListener("submit", (event) => {
     }
 
     setInputStatus(`Queued: ${formatAlgorithm(moves)}`);
-    enqueueMoves(moves);
+    enqueueMoves(moves, DEFAULT_TURN_DURATION_MS);
   } catch (error) {
     setInputStatus(error instanceof Error ? error.message : "Invalid algorithm.");
   }
@@ -311,8 +320,8 @@ function resetVisualState() {
   });
 }
 
-function enqueueMoves(moves: readonly Move[]) {
-  turnQueue.push(...moves);
+function enqueueMoves(moves: readonly Move[], durationMs: number) {
+  turnQueue.push(...moves.map((move) => ({ move, durationMs })));
   updatePanel();
 }
 
@@ -325,7 +334,7 @@ function updateTurnAnimation(now: number) {
       return;
     }
 
-    activeTurn = createTurnAnimation(next, now);
+    activeTurn = createTurnAnimation(next.move, next.durationMs, now);
     moveStatus.textContent = `${formatMove(activeTurn.move)} (${activeTurn.facets.length} facets)`;
     updatePanel();
   }
@@ -360,7 +369,7 @@ function updateTurnAnimation(now: number) {
   }
 }
 
-function createTurnAnimation(move: Move, now: number): TurnAnimation {
+function createTurnAnimation(move: Move, durationMs: number, now: number): TurnAnimation {
   // Clockwise is viewed from outside the fixed corner looking toward the center.
   const rotation = new THREE.Quaternion().setFromAxisAngle(
     fixedAxes[move.axis],
@@ -381,9 +390,29 @@ function createTurnAnimation(move: Move, now: number): TurnAnimation {
     facets,
     rotation,
     startedAt: now,
-    durationMs: 620,
+    durationMs,
     move,
   };
+}
+
+function createRandomScramble(length: number): Move[] {
+  const scramble: Move[] = [];
+  let previousAxis: MoveAxis | undefined;
+
+  while (scramble.length < length) {
+    const availableAxes = MOVE_AXES.filter((axis) => axis !== previousAxis);
+    const axis = availableAxes[randomIndex(availableAxes.length)]!;
+    const amount = Math.random() < 0.5 ? 1 : -1;
+
+    scramble.push({ axis, amount });
+    previousAxis = axis;
+  }
+
+  return scramble;
+}
+
+function randomIndex(length: number) {
+  return Math.floor(Math.random() * length);
 }
 
 function createVisualPieces(): PuzzleFacet[] {
