@@ -1,4 +1,11 @@
-import type { Move, PuzzleState } from "@skewb-ultimate/puzzle-core";
+import {
+  MOVE_AXES,
+  applyMove,
+  isSolved,
+  type Move,
+  type MoveAxis,
+  type PuzzleState,
+} from "@skewb-ultimate/puzzle-core";
 
 export type SolverOptions = {
   maxDepth?: number;
@@ -39,3 +46,137 @@ export function randomWalkSolver(): Solver {
   };
 }
 
+export function depthLimitedDfsSolver(): Solver {
+  return {
+    id: "depth-limited-dfs",
+    name: "Depth-Limited DFS",
+    async solve(state, options = {}) {
+      const startedAt = performance.now();
+      const maxDepth = options.maxDepth ?? 6;
+      const maxNodes = options.maxNodes ?? 100_000;
+      const stats = {
+        elapsedMs: 0,
+        nodesExpanded: 0,
+        maxDepthReached: 0,
+      };
+
+      if (isSolved(state)) {
+        return {
+          status: "solved",
+          solution: [],
+          stats: {
+            ...stats,
+            elapsedMs: performance.now() - startedAt,
+          },
+        };
+      }
+
+      const visitedDepth = new Map<string, number>();
+
+      for (let depth = 1; depth <= maxDepth; depth += 1) {
+        stats.maxDepthReached = depth;
+        const solution = search({
+          state,
+          depthRemaining: depth,
+          path: [],
+          previousAxis: undefined,
+          visitedDepth,
+          stats,
+          maxNodes,
+        });
+
+        if (solution) {
+          return {
+            status: "solved",
+            solution,
+            stats: {
+              ...stats,
+              elapsedMs: performance.now() - startedAt,
+            },
+          };
+        }
+
+        if (stats.nodesExpanded >= maxNodes) {
+          break;
+        }
+      }
+
+      return {
+        status: "failed",
+        solution: [],
+        stats: {
+          ...stats,
+          elapsedMs: performance.now() - startedAt,
+        },
+      };
+    },
+  };
+}
+
+type SearchContext = {
+  state: PuzzleState;
+  depthRemaining: number;
+  path: Move[];
+  previousAxis: MoveAxis | undefined;
+  visitedDepth: Map<string, number>;
+  stats: SolveResult["stats"];
+  maxNodes: number;
+};
+
+const SEARCH_AMOUNTS = [1, -1] as const;
+
+function search(context: SearchContext): Move[] | undefined {
+  if (context.stats.nodesExpanded >= context.maxNodes) {
+    return undefined;
+  }
+
+  context.stats.nodesExpanded += 1;
+
+  if (isSolved(context.state)) {
+    return context.path;
+  }
+
+  if (context.depthRemaining === 0) {
+    return undefined;
+  }
+
+  const stateKey = serializeState(context.state);
+  const previousDepthRemaining = context.visitedDepth.get(stateKey);
+
+  if (
+    previousDepthRemaining !== undefined &&
+    previousDepthRemaining >= context.depthRemaining
+  ) {
+    return undefined;
+  }
+
+  context.visitedDepth.set(stateKey, context.depthRemaining);
+
+  for (const axis of MOVE_AXES) {
+    if (axis === context.previousAxis) {
+      continue;
+    }
+
+    for (const amount of SEARCH_AMOUNTS) {
+      const move = { axis, amount };
+      const nextState = applyMove(context.state, move);
+      const solution = search({
+        ...context,
+        state: nextState,
+        depthRemaining: context.depthRemaining - 1,
+        path: [...context.path, move],
+        previousAxis: axis,
+      });
+
+      if (solution) {
+        return solution;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function serializeState(state: PuzzleState): string {
+  return state.pieces.join("|");
+}

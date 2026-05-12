@@ -16,6 +16,7 @@ import {
   type MoveAxis,
   type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
+import { depthLimitedDfsSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -73,6 +74,8 @@ const CORE_CORNER_RADIUS = 0.018;
 const SCRAMBLE_LENGTH = 20;
 const DEFAULT_TURN_DURATION_MS = 420;
 const FAST_TURN_DURATION_MS = 300;
+const SOLVER_MAX_DEPTH = 7;
+const SOLVER_MAX_NODES = 150_000;
 
 const app = document.querySelector<HTMLDivElement>("#app");
 
@@ -183,6 +186,7 @@ let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
 let puzzleState: PuzzleState = createSolvedState();
+const solver = depthLimitedDfsSolver();
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
@@ -207,7 +211,7 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
-document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
+document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", async () => {
   const pendingMoves = [
     ...(activeTurn ? [activeTurn.move] : []),
     ...turnQueue.map((turn) => turn.move),
@@ -225,7 +229,19 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
     return;
   }
 
-  setInputStatus(`Solving: ${formatAlgorithm(solution)}`);
+  setInputStatus("Searching...");
+  const result = await solver.solve(projectedState, {
+    maxDepth: SOLVER_MAX_DEPTH,
+    maxNodes: SOLVER_MAX_NODES,
+  });
+
+  if (result.status === "solved") {
+    setInputStatus(`Solved: ${formatAlgorithm(result.solution) || "already solved"}`);
+    enqueueMoves(result.solution, FAST_TURN_DURATION_MS);
+    return;
+  }
+
+  setInputStatus(`Depth ${SOLVER_MAX_DEPTH} missed; replaying inverse.`);
   enqueueMoves(solution, FAST_TURN_DURATION_MS);
 });
 
