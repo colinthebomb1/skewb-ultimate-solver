@@ -11,7 +11,6 @@ import {
   type Move,
   type MoveAxis,
 } from "@skewb-ultimate/puzzle-core";
-import { randomWalkSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -51,8 +50,7 @@ const faceColors = [
   0x8e44ad, 0x2dd4bf, 0x1f2937, 0xf472b6, 0x9ca3af, 0x8b5e34,
 ];
 
-// The vectors are dodecahedron vertices. These represent the four fixed-corner
-// axes used by Jaap-style L/R/D/B notation.
+// The vectors are dodecahedron vertices. These represent the four turn axes.
 const fixedAxes: Record<AxisId, THREE.Vector3> = {
   L: new THREE.Vector3(-1, 1, -1).normalize(),
   R: new THREE.Vector3(1, 1, 1).normalize(),
@@ -81,43 +79,49 @@ app.innerHTML = `
   <main class="shell">
     <section class="viewport" aria-label="Skewb Ultimate preview"></section>
     <aside class="panel">
-      <div>
-        <p class="eyebrow">Skewb Ultimate Solver Lab</p>
-        <h1>Skewb Ultimate visual lab</h1>
-        <p class="summary">
-          A 12-color deep-cut dodecahedron with Jaap-style move axes. Physical
-          piece cycles come next after mapping the real puzzle.
-        </p>
+      <header class="solver-header">
+        <p class="eyebrow">Solver</p>
+        <h1>Skewb Ultimate Solver</h1>
+      </header>
+      <div class="action-row primary-actions">
+        <button type="button" data-scramble>Scramble</button>
+        <button type="button" data-solve-inverse>Solve</button>
+        <button type="button" data-clear>Reset</button>
       </div>
-      <div class="controls" aria-label="Move controls">
-        <button type="button" data-move="L">L</button>
-        <button type="button" data-move="L'">L'</button>
-        <button type="button" data-move="R">R</button>
-        <button type="button" data-move="R'">R'</button>
-        <button type="button" data-move="D">D</button>
-        <button type="button" data-move="D'">D'</button>
-        <button type="button" data-move="B">B</button>
-        <button type="button" data-move="B'">B'</button>
-      </div>
-      <form class="algorithm-form" aria-label="Algorithm input">
-        <label for="algorithm-input">Algorithm</label>
+      <section class="tool-section" aria-labelledby="moves-title">
+        <div class="section-heading">
+          <h2 id="moves-title">Moves</h2>
+        </div>
+        <div class="controls" aria-label="Move controls">
+          <div class="move-pair">
+            <button type="button" data-move="L">L</button>
+            <button type="button" data-move="L'">L'</button>
+          </div>
+          <div class="move-pair">
+            <button type="button" data-move="R">R</button>
+            <button type="button" data-move="R'">R'</button>
+          </div>
+          <div class="move-pair">
+            <button type="button" data-move="D">D</button>
+            <button type="button" data-move="D'">D'</button>
+          </div>
+          <div class="move-pair">
+            <button type="button" data-move="B">B</button>
+            <button type="button" data-move="B'">B'</button>
+          </div>
+        </div>
+      </section>
+      <form class="algorithm-form" aria-label="Move sequence input">
+        <label for="algorithm-input">Move sequence</label>
         <div class="algorithm-entry">
           <input id="algorithm-input" name="algorithm" value="L R' D B" autocomplete="off" spellcheck="false" />
           <button type="submit">Play</button>
         </div>
         <p id="input-status" class="input-status">Ready</p>
       </form>
-      <div class="action-row">
-        <button type="button" data-scramble>Scramble</button>
-        <button type="button" data-solve-inverse>Solve</button>
-        <button type="button" data-clear>Clear</button>
-      </div>
       <dl class="stats">
-        <div><dt>State</dt><dd id="state-status">Visual shell</dd></div>
         <div><dt>History</dt><dd id="history-status">None</dd></div>
-        <div><dt>Solution</dt><dd id="solution-status">None</dd></div>
-        <div><dt>Solver</dt><dd id="solver-status">Inverse playback</dd></div>
-        <div><dt>Move</dt><dd id="move-status">Idle</dd></div>
+        <div><dt>Turn</dt><dd id="move-status">Idle</dd></div>
       </dl>
     </aside>
   </main>
@@ -177,10 +181,7 @@ let moveHistory: Move[] = [];
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
 const inputStatus = requireElement<HTMLElement>("#input-status");
-const stateStatus = requireElement<HTMLElement>("#state-status");
 const historyStatus = requireElement<HTMLElement>("#history-status");
-const solutionStatus = requireElement<HTMLElement>("#solution-status");
-const solverStatus = requireElement<HTMLElement>("#solver-status");
 const moveStatus = requireElement<HTMLElement>("#move-status");
 
 document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => {
@@ -209,20 +210,18 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
   const solution = invertAlgorithm(projectedHistory);
 
   if (solution.length === 0) {
-    setInputStatus("Already at visual identity.");
+    setInputStatus("Already solved.");
     updatePanel();
     return;
   }
 
-  solutionStatus.textContent = formatAlgorithm(solution);
-  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
+  setInputStatus(`Solving: ${formatAlgorithm(solution)}`);
   enqueueMoves(solution, FAST_TURN_DURATION_MS);
 });
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   resetVisualState();
-  solutionStatus.textContent = "None";
-  setInputStatus("Reset visual state and notation history.");
+  setInputStatus("Reset puzzle.");
   updatePanel();
 });
 
@@ -237,17 +236,13 @@ algorithmForm.addEventListener("submit", (event) => {
       return;
     }
 
-    setInputStatus(`Queued: ${formatAlgorithm(moves)}`);
+    setInputStatus(`Playing: ${formatAlgorithm(moves)}`);
     enqueueMoves(moves, DEFAULT_TURN_DURATION_MS);
   } catch (error) {
     setInputStatus(error instanceof Error ? error.message : "Invalid algorithm.");
   }
 });
 
-const baseline = randomWalkSolver();
-
-stateStatus.textContent = "Visual identity";
-solverStatus.textContent = `${baseline.name} + inverse playback`;
 updatePanel();
 
 function resize() {
@@ -289,17 +284,9 @@ function setInputStatus(message: string) {
 }
 
 function updatePanel() {
-  const queued = turnQueue.length;
   const history = formatAlgorithm(moveHistory);
 
-  stateStatus.textContent = moveHistory.length === 0
-    ? queued > 0 ? `Visual identity, ${queued} queued` : "Visual identity"
-    : queued > 0 ? `${moveHistory.length} moves, ${queued} queued` : `${moveHistory.length} moves`;
   historyStatus.textContent = history || "None";
-
-  if (moveHistory.length === 0 && !activeTurn) {
-    solutionStatus.textContent = "None";
-  }
 }
 
 function resetVisualState() {
@@ -361,9 +348,6 @@ function updateTurnAnimation(now: number) {
       turn.facet.center.copy(turn.facet.object.position);
     });
     moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
-    solutionStatus.textContent = moveHistory.length > 0
-      ? formatAlgorithm(invertAlgorithm(moveHistory))
-      : "None";
     updatePanel();
     activeTurn = undefined;
   }
