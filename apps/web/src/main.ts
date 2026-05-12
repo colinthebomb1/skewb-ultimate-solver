@@ -1,15 +1,20 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  applyAlgorithm,
+  applyMove,
+  createSolvedState,
   formatAlgorithm,
   formatMove,
   invertAlgorithm,
+  isSolved,
   parseAlgorithm,
   parseMove,
   simplifyAlgorithm,
   MOVE_AXES,
   type Move,
   type MoveAxis,
+  type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
 import "./style.css";
 
@@ -177,6 +182,7 @@ scene.add(puzzleGroup);
 let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
+let puzzleState: PuzzleState = createSolvedState();
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
@@ -202,14 +208,18 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
 });
 
 document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
-  const projectedHistory = simplifyAlgorithm([
-    ...moveHistory,
+  const pendingMoves = [
     ...(activeTurn ? [activeTurn.move] : []),
     ...turnQueue.map((turn) => turn.move),
+  ];
+  const projectedHistory = simplifyAlgorithm([
+    ...moveHistory,
+    ...pendingMoves,
   ]);
+  const projectedState = applyAlgorithm(puzzleState, pendingMoves);
   const solution = invertAlgorithm(projectedHistory);
 
-  if (solution.length === 0) {
+  if (isSolved(projectedState)) {
     setInputStatus("Already solved.");
     updatePanel();
     return;
@@ -293,6 +303,7 @@ function resetVisualState() {
   activeTurn = undefined;
   turnQueue.length = 0;
   moveHistory = [];
+  puzzleState = createSolvedState();
 
   puzzleFacets.forEach((facet) => {
     const initial = initialFacetTransforms.get(facet);
@@ -347,6 +358,7 @@ function updateTurnAnimation(now: number) {
         .multiply(turn.startQuaternion);
       turn.facet.center.copy(turn.facet.object.position);
     });
+    puzzleState = applyMove(puzzleState, completedTurn.move);
     moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
     updatePanel();
     activeTurn = undefined;
