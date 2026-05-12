@@ -186,6 +186,7 @@ let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
 let puzzleState: PuzzleState = createSolvedState();
+let completionStatus: string | undefined;
 const solver = depthLimitedDfsSolver();
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
@@ -229,6 +230,13 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
     return;
   }
 
+  if (projectedHistory.length > SOLVER_MAX_DEPTH) {
+    setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
+    completionStatus = "Solved.";
+    enqueueMoves(solution, FAST_TURN_DURATION_MS);
+    return;
+  }
+
   setInputStatus("Searching...");
   const result = await solver.solve(projectedState, {
     maxDepth: SOLVER_MAX_DEPTH,
@@ -236,12 +244,14 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
   });
 
   if (result.status === "solved") {
-    setInputStatus(`Solved: ${formatAlgorithm(result.solution) || "already solved"}`);
+    setInputStatus(`Playing solution: ${formatAlgorithm(result.solution)}`);
+    completionStatus = "Solved.";
     enqueueMoves(result.solution, FAST_TURN_DURATION_MS);
     return;
   }
 
-  setInputStatus(`Depth ${SOLVER_MAX_DEPTH} missed; replaying inverse.`);
+  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
+  completionStatus = "Solved.";
   enqueueMoves(solution, FAST_TURN_DURATION_MS);
 });
 
@@ -320,6 +330,7 @@ function resetVisualState() {
   turnQueue.length = 0;
   moveHistory = [];
   puzzleState = createSolvedState();
+  completionStatus = undefined;
 
   puzzleFacets.forEach((facet) => {
     const initial = initialFacetTransforms.get(facet);
@@ -335,6 +346,10 @@ function resetVisualState() {
 }
 
 function enqueueMoves(moves: readonly Move[], durationMs: number) {
+  if (moves.length === 0) {
+    return;
+  }
+
   turnQueue.push(...moves.map((move) => ({ move, durationMs })));
   updatePanel();
 }
@@ -345,6 +360,12 @@ function updateTurnAnimation(now: number) {
 
     if (!next) {
       moveStatus.textContent = "Idle";
+
+      if (completionStatus && isSolved(puzzleState)) {
+        setInputStatus(completionStatus);
+        completionStatus = undefined;
+      }
+
       return;
     }
 
