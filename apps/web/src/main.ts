@@ -72,6 +72,7 @@ const STICKER_CORNER_RADIUS = 0.025;
 const STICKER_PROTRUSION = 0.004;
 const CORE_CORNER_RADIUS = 0.018;
 const SCRAMBLE_LENGTH = 20;
+const SHORT_SCRAMBLE_LENGTH = 6;
 const DEFAULT_TURN_DURATION_MS = 420;
 const FAST_TURN_DURATION_MS = 300;
 const SOLVER_MAX_DEPTH = 7;
@@ -92,7 +93,8 @@ app.innerHTML = `
         <h1>Skewb Ultimate Solver</h1>
       </header>
       <div class="action-row primary-actions">
-        <button type="button" data-scramble>Scramble</button>
+        <button type="button" data-short-scramble>Short</button>
+        <button type="button" data-scramble>Full</button>
         <button type="button" data-solve-inverse>Solve</button>
         <button type="button" data-clear>Reset</button>
       </div>
@@ -208,7 +210,14 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
   const scramble = createRandomScramble(SCRAMBLE_LENGTH);
 
-  setInputStatus(`Scramble: ${formatAlgorithm(scramble)}`);
+  setInputStatus(`Full scramble: ${formatAlgorithm(scramble)}`);
+  enqueueMoves(scramble, FAST_TURN_DURATION_MS);
+});
+
+document.querySelector<HTMLButtonElement>("[data-short-scramble]")?.addEventListener("click", () => {
+  const scramble = createRandomScramble(SHORT_SCRAMBLE_LENGTH);
+
+  setInputStatus(`Short scramble: ${formatAlgorithm(scramble)}`);
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
@@ -231,8 +240,8 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
   }
 
   if (projectedHistory.length > SOLVER_MAX_DEPTH) {
-    setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
-    completionStatus = "Solved.";
+    setInputStatus(`Using inverse playback: ${formatAlgorithm(solution)}`);
+    completionStatus = "Solved with inverse playback.";
     enqueueMoves(solution, FAST_TURN_DURATION_MS);
     return;
   }
@@ -244,14 +253,15 @@ document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListe
   });
 
   if (result.status === "solved") {
-    setInputStatus(`Playing solution: ${formatAlgorithm(result.solution)}`);
-    completionStatus = "Solved.";
+    setInputStatus(`DFS solution: ${formatAlgorithm(result.solution)}`);
+    completionStatus =
+      `DFS solved in ${result.solution.length} moves; searched ${result.stats.nodesExpanded} nodes.`;
     enqueueMoves(result.solution, FAST_TURN_DURATION_MS);
     return;
   }
 
-  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
-  completionStatus = "Solved.";
+  setInputStatus(`DFS missed; using inverse playback: ${formatAlgorithm(solution)}`);
+  completionStatus = "Solved with inverse playback.";
   enqueueMoves(solution, FAST_TURN_DURATION_MS);
 });
 
@@ -396,7 +406,9 @@ function updateTurnAnimation(now: number) {
       turn.facet.center.copy(turn.facet.object.position);
     });
     puzzleState = applyMove(puzzleState, completedTurn.move);
-    moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
+    moveHistory = isSolved(puzzleState)
+      ? []
+      : simplifyAlgorithm([...moveHistory, completedTurn.move]);
     updatePanel();
     activeTurn = undefined;
   }
