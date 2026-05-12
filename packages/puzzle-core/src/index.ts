@@ -11,8 +11,11 @@ export type SlotId = string;
 
 export type PieceId = string;
 
+export type Orientation = readonly [number, number, number, number];
+
 export type PuzzleState = {
   pieces: readonly PieceId[];
+  orientations: readonly Orientation[];
 };
 
 export const MOVE_AXES: readonly MoveAxis[] = ["L", "R", "D", "B"] as const;
@@ -41,9 +44,13 @@ const SLOT_DEFINITIONS = createSlotDefinitions();
 export const SLOT_IDS: readonly SlotId[] = SLOT_DEFINITIONS.map((slot) => slot.id);
 
 const SLOT_INDEX_BY_ID = new Map(SLOT_IDS.map((id, index) => [id, index]));
+const IDENTITY_ORIENTATION: Orientation = [0, 0, 0, 1];
 
 export function createSolvedState(): PuzzleState {
-  return { pieces: [...SLOT_IDS] };
+  return {
+    pieces: [...SLOT_IDS],
+    orientations: SLOT_IDS.map(() => IDENTITY_ORIENTATION),
+  };
 }
 
 export function invertMove(move: Move): Move {
@@ -73,7 +80,10 @@ export function applyAlgorithm(state: PuzzleState, moves: readonly Move[]): Puzz
 }
 
 export function isSolved(state: PuzzleState): boolean {
-  return SLOT_IDS.every((slotId, index) => state.pieces[index] === slotId);
+  return SLOT_IDS.every((slotId, index) =>
+    state.pieces[index] === slotId &&
+    isIdentityOrientation(state.orientations[index]!),
+  );
 }
 
 export function formatMove(move: Move): string {
@@ -156,6 +166,8 @@ function normalizeTurnAmount(amount: number): MoveAmount | 0 {
 
 function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
   const nextPieces = [...state.pieces];
+  const nextOrientations = [...state.orientations];
+  const rotation = quaternionFromAxisAngle(AXIS_VECTORS[axis], 1);
 
   SLOT_DEFINITIONS
     .filter((slot) => slot.signs[axis] === 1)
@@ -169,9 +181,16 @@ function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
       const targetIndex = getSlotIndex(targetSlotId);
 
       nextPieces[targetIndex] = state.pieces[sourceIndex]!;
+      nextOrientations[targetIndex] = multiplyQuaternions(
+        rotation,
+        state.orientations[sourceIndex]!,
+      );
     });
 
-  return { pieces: nextPieces };
+  return {
+    pieces: nextPieces,
+    orientations: nextOrientations.map(canonicalizeQuaternion),
+  };
 }
 
 function createSlotDefinitions(): SlotDefinition[] {
@@ -239,6 +258,67 @@ function rotateAroundAxis(point: Vector3, axis: Vector3, amount: 1): Vector3 {
   return add(
     add(scale(point, cos), scale(axisCrossPoint, sin)),
     scale(axis, axisDotPoint * (1 - cos)),
+  );
+}
+
+function quaternionFromAxisAngle(axis: Vector3, amount: 1): Orientation {
+  const theta = amount * ((-Math.PI * 2) / 3);
+  const halfTheta = theta / 2;
+  const sinHalfTheta = Math.sin(halfTheta);
+
+  return canonicalizeQuaternion([
+    axis[0] * sinHalfTheta,
+    axis[1] * sinHalfTheta,
+    axis[2] * sinHalfTheta,
+    Math.cos(halfTheta),
+  ]);
+}
+
+function multiplyQuaternions(left: Orientation, right: Orientation): Orientation {
+  const [lx, ly, lz, lw] = left;
+  const [rx, ry, rz, rw] = right;
+
+  return canonicalizeQuaternion([
+    lw * rx + lx * rw + ly * rz - lz * ry,
+    lw * ry - lx * rz + ly * rw + lz * rx,
+    lw * rz + lx * ry - ly * rx + lz * rw,
+    lw * rw - lx * rx - ly * ry - lz * rz,
+  ]);
+}
+
+function canonicalizeQuaternion(quaternion: Orientation): Orientation {
+  const length = Math.hypot(...quaternion);
+  const normalized: Orientation = [
+    cleanQuaternionValue(quaternion[0] / length),
+    cleanQuaternionValue(quaternion[1] / length),
+    cleanQuaternionValue(quaternion[2] / length),
+    cleanQuaternionValue(quaternion[3] / length),
+  ];
+
+  if (normalized[3] < 0) {
+    return [
+      -normalized[0],
+      -normalized[1],
+      -normalized[2],
+      -normalized[3],
+    ];
+  }
+
+  return normalized;
+}
+
+function cleanQuaternionValue(value: number): number {
+  return Math.abs(value) < 0.0000000001 ? 0 : value;
+}
+
+function isIdentityOrientation(orientation: Orientation): boolean {
+  const canonical = canonicalizeQuaternion(orientation);
+
+  return (
+    Math.abs(canonical[0]) < 0.000001 &&
+    Math.abs(canonical[1]) < 0.000001 &&
+    Math.abs(canonical[2]) < 0.000001 &&
+    Math.abs(canonical[3] - 1) < 0.000001
   );
 }
 
