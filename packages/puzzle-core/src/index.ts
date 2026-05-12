@@ -32,6 +32,34 @@ export function formatMove(move: Move): string {
   return `${move.axis}${move.amount === -1 ? "'" : ""}`;
 }
 
+export function formatAlgorithm(moves: readonly Move[]): string {
+  return moves.map(formatMove).join(" ");
+}
+
+export function simplifyAlgorithm(moves: readonly Move[]): Move[] {
+  const simplified: Move[] = [];
+
+  moves.forEach((move) => {
+    const previous = simplified.at(-1);
+
+    if (!previous || previous.axis !== move.axis) {
+      simplified.push({ ...move });
+      return;
+    }
+
+    const combined = normalizeTurnAmount(previous.amount + move.amount);
+
+    if (combined === 0) {
+      simplified.pop();
+      return;
+    }
+
+    previous.amount = combined;
+  });
+
+  return simplified;
+}
+
 export function parseMove(token: string): Move {
   const axis = token[0];
 
@@ -68,3 +96,12 @@ function isMoveAxis(value: string | undefined): value is MoveAxis {
   return value === "L" || value === "R" || value === "D" || value === "B";
 }
 
+function normalizeTurnAmount(amount: number): MoveAmount | 0 {
+  const normalized = ((amount % 3) + 3) % 3;
+
+  if (normalized === 0) {
+    return 0;
+  }
+
+  return normalized === 1 ? 1 : -1;
+}

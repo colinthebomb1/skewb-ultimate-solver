@@ -12,17 +12,21 @@
 
 body {
   margin: 0;
+  overflow: hidden;
 }
 
 .shell {
-  min-height: 100vh;
+  height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
   background: #f7f5ef;
 }
 
 .viewport {
-  min-height: 100vh;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .viewport canvas {
@@ -34,11 +38,13 @@ body {
 .panel {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 32px;
+  gap: 24px;
+  height: 100vh;
   padding: 32px;
   border-left: 1px solid #d8d3c8;
   background: #fffcf5;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .controls {
@@ -47,7 +53,9 @@ body {
   gap: 10px;
 }
 
-.controls button {
+.controls button,
+.algorithm-entry button,
+.action-row button {
   min-height: 44px;
   border: 1px solid #c9c1b2;
   border-radius: 8px;
@@ -62,18 +70,72 @@ body {
     transform 140ms ease;
 }
 
-.controls button:hover {
+.controls button:hover,
+.algorithm-entry button:hover,
+.action-row button:hover {
   border-color: #928675;
   background: #efe2cc;
   transform: translateY(-1px);
 }
 
-.controls button:active {
+.controls button:active,
+.algorithm-entry button:active,
+.action-row button:active {
   transform: translateY(0);
 }
 
-.controls button[data-scramble] {
-  grid-column: 1 / -1;
+.algorithm-form {
+  display: grid;
+  gap: 8px;
+}
+
+.algorithm-form label {
+  color: #697477;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.algorithm-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 78px;
+  gap: 10px;
+}
+
+.algorithm-entry input {
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid #c9c1b2;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #1e2528;
+  background: #fffaf0;
+  font: inherit;
+  font-weight: 700;
+}
+
+.algorithm-entry input:focus {
+  border-color: #2b6f8f;
+  outline: 3px solid rgb(43 111 143 / 18%);
+}
+
+.input-status {
+  min-height: 18px;
+  margin: 0;
+  color: #465156;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.action-row button {
+  min-width: 0;
+  padding: 0 10px;
+  font-size: 14px;
 }
 
 .eyebrow {
@@ -122,19 +184,43 @@ dd {
   margin: 0;
   font-weight: 700;
   text-align: right;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 800px) {
+  body {
+    overflow: auto;
+  }
+
   .shell {
+    height: auto;
+    min-height: 100vh;
     grid-template-columns: 1fr;
   }
 
   .viewport {
+    position: relative;
+    height: 62vh;
     min-height: 62vh;
   }
 
   .panel {
+    height: auto;
     border-left: 0;
     border-top: 1px solid #d8d3c8;
+  }
+}
+
+@media (max-width: 420px) {
+  .panel {
+    padding: 24px;
+  }
+
+  .controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .action-row {
+    grid-template-columns: 1fr;
   }
 }

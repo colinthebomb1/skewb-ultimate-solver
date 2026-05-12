@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatMove, invertAlgorithm, parseAlgorithm, parseMove } from "../src";
+import {
+  formatAlgorithm,
+  formatMove,
+  invertAlgorithm,
+  parseAlgorithm,
+  parseMove,
+  simplifyAlgorithm,
+} from "../src";
 
 describe("notation parser", () => {
   it("parses basic Jaap-style moves", () => {
@@ -29,6 +36,10 @@ describe("notation parser", () => {
     expect(formatMove({ axis: "D", amount: -1 })).toBe("D'");
   });
 
+  it("formats algorithms", () => {
+    expect(formatAlgorithm(parseAlgorithm("L R' D"))).toBe("L R' D");
+  });
+
   it("inverts algorithms", () => {
     expect(invertAlgorithm(parseAlgorithm("L R' D")).map(formatMove)).toEqual([
       "D'",
@@ -36,5 +47,11 @@ describe("notation parser", () => {
       "L'",
     ]);
   });
-});
 
+  it("simplifies adjacent moves with order-3 turn rules", () => {
+    expect(formatAlgorithm(simplifyAlgorithm(parseAlgorithm("L L")))).toBe("L'");
+    expect(formatAlgorithm(simplifyAlgorithm(parseAlgorithm("L L L")))).toBe("");
+    expect(formatAlgorithm(simplifyAlgorithm(parseAlgorithm("L L'")))).toBe("");
+    expect(formatAlgorithm(simplifyAlgorithm(parseAlgorithm("L R R R L'")))).toBe("");
+  });
+});

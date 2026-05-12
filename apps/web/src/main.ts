@@ -1,10 +1,19 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { parseAlgorithm } from "@skewb-ultimate/puzzle-core";
+import {
+  formatAlgorithm,
+  formatMove,
+  invertAlgorithm,
+  parseAlgorithm,
+  parseMove,
+  simplifyAlgorithm,
+  type Move,
+  type MoveAxis,
+} from "@skewb-ultimate/puzzle-core";
 import { randomWalkSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
-type AxisId = "L" | "R" | "D" | "B";
+type AxisId = MoveAxis;
 
 type PuzzleFacet = {
   object: THREE.Group;
@@ -28,7 +37,7 @@ type TurnAnimation = {
   rotation: THREE.Quaternion;
   startedAt: number;
   durationMs: number;
-  label: AxisId;
+  move: Move;
 };
 
 const faceColors = [
@@ -73,15 +82,32 @@ app.innerHTML = `
       </div>
       <div class="controls" aria-label="Move controls">
         <button type="button" data-move="L">L</button>
+        <button type="button" data-move="L'">L'</button>
         <button type="button" data-move="R">R</button>
+        <button type="button" data-move="R'">R'</button>
         <button type="button" data-move="D">D</button>
+        <button type="button" data-move="D'">D'</button>
         <button type="button" data-move="B">B</button>
+        <button type="button" data-move="B'">B'</button>
+      </div>
+      <form class="algorithm-form" aria-label="Algorithm input">
+        <label for="algorithm-input">Algorithm</label>
+        <div class="algorithm-entry">
+          <input id="algorithm-input" name="algorithm" value="L R' D B" autocomplete="off" spellcheck="false" />
+          <button type="submit">Play</button>
+        </div>
+        <p id="input-status" class="input-status">Ready</p>
+      </form>
+      <div class="action-row">
         <button type="button" data-scramble>Scramble</button>
+        <button type="button" data-solve-inverse>Solve</button>
+        <button type="button" data-clear>Clear</button>
       </div>
       <dl class="stats">
         <div><dt>State</dt><dd id="state-status">Visual shell</dd></div>
-        <div><dt>Notation</dt><dd id="notation-status">L R D B</dd></div>
-        <div><dt>Solver</dt><dd id="solver-status">Random walk stub</dd></div>
+        <div><dt>History</dt><dd id="history-status">None</dd></div>
+        <div><dt>Solution</dt><dd id="solution-status">None</dd></div>
+        <div><dt>Solver</dt><dd id="solver-status">Inverse playback</dd></div>
         <div><dt>Move</dt><dd id="move-status">Idle</dd></div>
       </dl>
     </aside>
@@ -99,17 +125,16 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xf4f0e7);
 
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
-camera.position.set(4.2, 3.4, 5.4);
+camera.position.set(5.7, 4.6, 7.3);
 camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 puzzleViewport.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.minDistance = 3.4;
-controls.maxDistance = 9;
+controls.minDistance = 4.4;
+controls.maxDistance = 11;
 controls.target.set(0, 0, 0);
 
 const light = new THREE.DirectionalLight(0xffffff, 3);
@@ -119,39 +144,108 @@ scene.add(new THREE.AmbientLight(0xffffff, 1.4));
 
 const puzzleGroup = new THREE.Group();
 const puzzleFacets = createVisualPieces();
+const initialFacetTransforms = new Map<PuzzleFacet, {
+  position: THREE.Vector3;
+  quaternion: THREE.Quaternion;
+  center: THREE.Vector3;
+}>();
 puzzleGroup.rotation.set(0.2, 0.35, -0.08);
-puzzleFacets.forEach((facet) => puzzleGroup.add(facet.object));
+puzzleFacets.forEach((facet) => {
+  initialFacetTransforms.set(facet, {
+    position: facet.object.position.clone(),
+    quaternion: facet.object.quaternion.clone(),
+    center: facet.center.clone(),
+  });
+  puzzleGroup.add(facet.object);
+});
 puzzleGroup.add(createAxisMarkers());
 scene.add(puzzleGroup);
 
 let activeTurn: TurnAnimation | undefined;
-const turnQueue: AxisId[] = [];
+const turnQueue: Move[] = [];
+let moveHistory: Move[] = [];
+
+const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
+const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
+const inputStatus = requireElement<HTMLElement>("#input-status");
+const stateStatus = requireElement<HTMLElement>("#state-status");
+const historyStatus = requireElement<HTMLElement>("#history-status");
+const solutionStatus = requireElement<HTMLElement>("#solution-status");
+const solverStatus = requireElement<HTMLElement>("#solver-status");
+const moveStatus = requireElement<HTMLElement>("#move-status");
 
 document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => {
   button.addEventListener("click", () => {
-    const axis = button.dataset.move;
-    if (isAxisId(axis)) {
-      enqueueTurn(axis);
+    const moveToken = button.dataset.move;
+
+    if (moveToken) {
+      enqueueMoves([parseMove(moveToken)]);
     }
   });
 });
 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
-  turnQueue.push("L", "R", "D", "B", "R", "L");
+  const scramble = parseAlgorithm("L R' D B R L'");
+
+  setInputStatus(`Scramble: ${formatAlgorithm(scramble)}`);
+  enqueueMoves(scramble);
 });
 
-const parsed = parseAlgorithm("L R' D B");
+document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
+  const projectedHistory = simplifyAlgorithm([
+    ...moveHistory,
+    ...(activeTurn ? [activeTurn.move] : []),
+    ...turnQueue,
+  ]);
+  const solution = invertAlgorithm(projectedHistory);
+
+  if (solution.length === 0) {
+    setInputStatus("Already at visual identity.");
+    updatePanel();
+    return;
+  }
+
+  solutionStatus.textContent = formatAlgorithm(solution);
+  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
+  enqueueMoves(solution);
+});
+
+document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
+  resetVisualState();
+  solutionStatus.textContent = "None";
+  setInputStatus("Reset visual state and notation history.");
+  updatePanel();
+});
+
+algorithmForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+
+  try {
+    const moves = parseAlgorithm(algorithmInput.value);
+
+    if (moves.length === 0) {
+      setInputStatus("Enter at least one move.");
+      return;
+    }
+
+    setInputStatus(`Queued: ${formatAlgorithm(moves)}`);
+    enqueueMoves(moves);
+  } catch (error) {
+    setInputStatus(error instanceof Error ? error.message : "Invalid algorithm.");
+  }
+});
+
 const baseline = randomWalkSolver();
 
-document.querySelector("#state-status")!.textContent = "cut face model";
-document.querySelector("#notation-status")!.textContent = parsed
-  .map((move) => `${move.axis}${move.amount < 0 ? "'" : ""}`)
-  .join(" ");
-document.querySelector("#solver-status")!.textContent = baseline.name;
+stateStatus.textContent = "Visual identity";
+solverStatus.textContent = `${baseline.name} + inverse playback`;
+updatePanel();
 
 function resize() {
-  const width = puzzleViewport.clientWidth;
-  const height = puzzleViewport.clientHeight;
+  const width = Math.max(1, Math.round(puzzleViewport.clientWidth));
+  const height = Math.max(1, Math.round(puzzleViewport.clientHeight));
+
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height, false);
@@ -164,12 +258,62 @@ function animate() {
   requestAnimationFrame(animate);
 }
 
+const viewportResizeObserver = new ResizeObserver(resize);
+
+viewportResizeObserver.observe(puzzleViewport);
 window.addEventListener("resize", resize);
 resize();
 animate();
 
-function enqueueTurn(axis: AxisId) {
-  turnQueue.push(axis);
+function requireElement<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+
+  if (!element) {
+    throw new Error(`Missing required element: ${selector}`);
+  }
+
+  return element;
+}
+
+function setInputStatus(message: string) {
+  inputStatus.textContent = message;
+}
+
+function updatePanel() {
+  const queued = turnQueue.length;
+  const history = formatAlgorithm(moveHistory);
+
+  stateStatus.textContent = moveHistory.length === 0
+    ? queued > 0 ? `Visual identity, ${queued} queued` : "Visual identity"
+    : queued > 0 ? `${moveHistory.length} moves, ${queued} queued` : `${moveHistory.length} moves`;
+  historyStatus.textContent = history || "None";
+
+  if (moveHistory.length === 0 && !activeTurn) {
+    solutionStatus.textContent = "None";
+  }
+}
+
+function resetVisualState() {
+  activeTurn = undefined;
+  turnQueue.length = 0;
+  moveHistory = [];
+
+  puzzleFacets.forEach((facet) => {
+    const initial = initialFacetTransforms.get(facet);
+
+    if (!initial) {
+      return;
+    }
+
+    facet.object.position.copy(initial.position);
+    facet.object.quaternion.copy(initial.quaternion);
+    facet.center.copy(initial.center);
+  });
+}
+
+function enqueueMoves(moves: readonly Move[]) {
+  turnQueue.push(...moves);
+  updatePanel();
 }
 
 function updateTurnAnimation(now: number) {
@@ -177,13 +321,13 @@ function updateTurnAnimation(now: number) {
     const next = turnQueue.shift();
 
     if (!next) {
-      document.querySelector("#move-status")!.textContent = "Idle";
+      moveStatus.textContent = "Idle";
       return;
     }
 
     activeTurn = createTurnAnimation(next, now);
-    document.querySelector("#move-status")!.textContent =
-      `${activeTurn.label} (${activeTurn.facets.length} facets)`;
+    moveStatus.textContent = `${formatMove(activeTurn.move)} (${activeTurn.facets.length} facets)`;
+    updatePanel();
   }
 
   const t = Math.min((now - activeTurn.startedAt) / activeTurn.durationMs, 1);
@@ -207,17 +351,22 @@ function updateTurnAnimation(now: number) {
         .multiply(turn.startQuaternion);
       turn.facet.center.copy(turn.facet.object.position);
     });
+    moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
+    solutionStatus.textContent = moveHistory.length > 0
+      ? formatAlgorithm(invertAlgorithm(moveHistory))
+      : "None";
+    updatePanel();
     activeTurn = undefined;
   }
 }
 
-function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
+function createTurnAnimation(move: Move, now: number): TurnAnimation {
   // Clockwise is viewed from outside the fixed corner looking toward the center.
   const rotation = new THREE.Quaternion().setFromAxisAngle(
-    fixedAxes[axisId],
-    (-Math.PI * 2) / 3,
+    fixedAxes[move.axis],
+    move.amount * ((-Math.PI * 2) / 3),
   );
-  const facets = selectTurningFacets(fixedAxes[axisId]).map((facet) => {
+  const facets = selectTurningFacets(fixedAxes[move.axis]).map((facet) => {
     const startPosition = facet.object.position.clone();
     const startQuaternion = facet.object.quaternion.clone();
 
@@ -233,7 +382,7 @@ function createTurnAnimation(axisId: AxisId, now: number): TurnAnimation {
     rotation,
     startedAt: now,
     durationMs: 620,
-    label: axisId,
+    move,
   };
 }
 
