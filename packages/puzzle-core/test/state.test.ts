@@ -15,7 +15,7 @@ describe("puzzle state", () => {
     const state = createSolvedState();
 
     expect(SLOT_IDS).toHaveLength(14);
-    expect(state.pieces).toEqual(SLOT_IDS);
+    expect(state.pieces).toEqual(SLOT_IDS.map((_, i) => i));
     expect(state.orientations).toHaveLength(SLOT_IDS.length);
     expect(isSolved(state)).toBe(true);
   });
@@ -67,7 +67,7 @@ describe("puzzle state", () => {
       coarseShortcut,
     );
 
-    expect(state.pieces).toEqual(SLOT_IDS);
+    expect(state.pieces).toEqual(SLOT_IDS.map((_, i) => i));
     expect(isSolved(state)).toBe(false);
   });
 });

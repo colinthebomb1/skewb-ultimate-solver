@@ -9,7 +9,7 @@ export type Move = {
 
 export type SlotId = string;
 
-export type PieceId = string;
+export type PieceId = number;
 
 export type Orientation = readonly [number, number, number, number];
 
@@ -43,12 +43,36 @@ const SLOT_DEFINITIONS = createSlotDefinitions();
 
 export const SLOT_IDS: readonly SlotId[] = SLOT_DEFINITIONS.map((slot) => slot.id);
 
+export function slotIdForPiece(piece: PieceId): SlotId {
+  return SLOT_IDS[piece]!;
+}
+
 const SLOT_INDEX_BY_ID = new Map(SLOT_IDS.map((id, index) => [id, index]));
 const IDENTITY_ORIENTATION: Orientation = [0, 0, 0, 1];
 
+type MoveCycle = { sourceIndex: number; targetIndex: number };
+
+const MOVE_CYCLES: Record<MoveAxis, MoveCycle[]> = Object.fromEntries(
+  MOVE_AXES.map((axis) => [
+    axis,
+    SLOT_DEFINITIONS
+      .filter((slot) => slot.signs[axis] === 1)
+      .map((sourceSlot) => ({
+        sourceIndex: getSlotIndex(sourceSlot.id),
+        targetIndex: getSlotIndex(
+          slotIdFromPoint(rotateAroundAxis(sourceSlot.center, AXIS_VECTORS[axis], 1)),
+        ),
+      })),
+  ]),
+) as Record<MoveAxis, MoveCycle[]>;
+
+const MOVE_QUATERNIONS: Record<MoveAxis, Orientation> = Object.fromEntries(
+  MOVE_AXES.map((axis) => [axis, quaternionFromAxisAngle(AXIS_VECTORS[axis], 1)]),
+) as Record<MoveAxis, Orientation>;
+
 export function createSolvedState(): PuzzleState {
   return {
-    pieces: [...SLOT_IDS],
+    pieces: SLOT_IDS.map((_, i) => i),
     orientations: SLOT_IDS.map(() => IDENTITY_ORIENTATION),
   };
 }
@@ -80,8 +104,8 @@ export function applyAlgorithm(state: PuzzleState, moves: readonly Move[]): Puzz
 }
 
 export function isSolved(state: PuzzleState): boolean {
-  return SLOT_IDS.every((slotId, index) =>
-    state.pieces[index] === slotId &&
+  return state.pieces.every((pieceId, index) =>
+    pieceId === index &&
     isIdentityOrientation(state.orientations[index]!),
   );
 }
@@ -167,30 +191,16 @@ function normalizeTurnAmount(amount: number): MoveAmount | 0 {
 function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
   const nextPieces = [...state.pieces];
   const nextOrientations = [...state.orientations];
-  const rotation = quaternionFromAxisAngle(AXIS_VECTORS[axis], 1);
+  const rotation = MOVE_QUATERNIONS[axis];
 
-  SLOT_DEFINITIONS
-    .filter((slot) => slot.signs[axis] === 1)
-    .forEach((sourceSlot) => {
-      const targetSlotId = slotIdFromPoint(rotateAroundAxis(
-        sourceSlot.center,
-        AXIS_VECTORS[axis],
-        1,
-      ));
-      const sourceIndex = getSlotIndex(sourceSlot.id);
-      const targetIndex = getSlotIndex(targetSlotId);
+  for (const { sourceIndex, targetIndex } of MOVE_CYCLES[axis]) {
+    nextPieces[targetIndex] = state.pieces[sourceIndex]!;
+    nextOrientations[targetIndex] = canonicalizeQuaternion(
+      multiplyQuaternions(rotation, state.orientations[sourceIndex]!),
+    );
+  }
 
-      nextPieces[targetIndex] = state.pieces[sourceIndex]!;
-      nextOrientations[targetIndex] = multiplyQuaternions(
-        rotation,
-        state.orientations[sourceIndex]!,
-      );
-    });
-
-  return {
-    pieces: nextPieces,
-    orientations: nextOrientations.map(canonicalizeQuaternion),
-  };
+  return { pieces: nextPieces, orientations: nextOrientations };
 }
 
 function createSlotDefinitions(): SlotDefinition[] {

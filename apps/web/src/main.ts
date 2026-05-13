@@ -1,16 +1,21 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  applyAlgorithm,
+  applyMove,
+  createSolvedState,
   formatAlgorithm,
   formatMove,
-  invertAlgorithm,
+  isSolved,
   parseAlgorithm,
   parseMove,
   simplifyAlgorithm,
   MOVE_AXES,
   type Move,
   type MoveAxis,
+  type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
+import { bidirectionalBfsSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -65,8 +70,6 @@ const PIECE_DEPTH = 0.095;
 const STICKER_CORNER_RADIUS = 0.025;
 const STICKER_PROTRUSION = 0.004;
 const CORE_CORNER_RADIUS = 0.018;
-const SCRAMBLE_LENGTH = 20;
-const SHORT_SCRAMBLE_LENGTH = 6;
 const DEFAULT_TURN_DURATION_MS = 420;
 const FAST_TURN_DURATION_MS = 300;
 
@@ -85,10 +88,14 @@ app.innerHTML = `
         <h1>Skewb Ultimate Solver</h1>
       </header>
       <div class="action-row primary-actions">
-        <button type="button" data-short-scramble>Short</button>
-        <button type="button" data-scramble>Full</button>
+        <button type="button" data-scramble>Scramble</button>
         <button type="button" data-solve-inverse>Solve</button>
         <button type="button" data-clear>Reset</button>
+      </div>
+      <div class="scramble-length-row">
+        <label for="scramble-length">Length</label>
+        <input type="range" id="scramble-length" min="1" max="25" value="12" />
+        <span id="scramble-length-value">12 moves</span>
       </div>
       <section class="tool-section" aria-labelledby="moves-title">
         <div class="section-heading">
@@ -121,10 +128,6 @@ app.innerHTML = `
         </div>
         <p id="input-status" class="input-status">Ready</p>
       </form>
-      <dl class="stats">
-        <div><dt>History</dt><dd id="history-status">None</dd></div>
-        <div><dt>Turn</dt><dd id="move-status">Idle</dd></div>
-      </dl>
     </aside>
   </main>
 `;
@@ -179,13 +182,19 @@ scene.add(puzzleGroup);
 let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
+let engineState: PuzzleState = createSolvedState();
 let completionStatus: string | undefined;
+let solving = false;
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
 const inputStatus = requireElement<HTMLElement>("#input-status");
-const historyStatus = requireElement<HTMLElement>("#history-status");
-const moveStatus = requireElement<HTMLElement>("#move-status");
+const scrambleLengthInput = requireElement<HTMLInputElement>("#scramble-length");
+const scrambleLengthValue = requireElement<HTMLElement>("#scramble-length-value");
+
+scrambleLengthInput.addEventListener("input", () => {
+  scrambleLengthValue.textContent = `${scrambleLengthInput.value} moves`;
+});
 
 document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => {
   button.addEventListener("click", () => {
@@ -198,45 +207,53 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
 });
 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
-  const scramble = createRandomScramble(SCRAMBLE_LENGTH);
+  const length = Number(scrambleLengthInput.value);
+  const scramble = createRandomScramble(length);
 
-  setInputStatus(`Full scramble: ${formatAlgorithm(scramble)}`);
+  setInputStatus(`Scramble (${length}): ${formatAlgorithm(scramble)}`);
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
-document.querySelector<HTMLButtonElement>("[data-short-scramble]")?.addEventListener("click", () => {
-  const scramble = createRandomScramble(SHORT_SCRAMBLE_LENGTH);
+const solveButton = document.querySelector<HTMLButtonElement>("[data-solve-inverse]");
 
-  setInputStatus(`Short scramble: ${formatAlgorithm(scramble)}`);
-  enqueueMoves(scramble, FAST_TURN_DURATION_MS);
-});
+solveButton?.addEventListener("click", async () => {
+  if (solving) return;
 
-document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
   const pendingMoves = [
     ...(activeTurn ? [activeTurn.move] : []),
     ...turnQueue.map((turn) => turn.move),
   ];
-  const projectedHistory = simplifyAlgorithm([
-    ...moveHistory,
-    ...pendingMoves,
-  ]);
-  const solution = invertAlgorithm(projectedHistory);
+  const projectedState = applyAlgorithm(engineState, pendingMoves);
 
-  if (solution.length === 0) {
+  if (isSolved(projectedState)) {
     setInputStatus("Already solved.");
-    updatePanel();
     return;
   }
 
-  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
-  completionStatus = "Solved.";
-  enqueueMoves(solution, FAST_TURN_DURATION_MS);
+  solving = true;
+  if (solveButton) solveButton.disabled = true;
+  setInputStatus("Solving…");
+
+  const result = await bidirectionalBfsSolver().solve(projectedState);
+
+  solving = false;
+  if (solveButton) solveButton.disabled = false;
+
+  if (result.status === "solved") {
+    const { solution, stats } = result;
+    setInputStatus(
+      `Solution: ${formatAlgorithm(solution)} (${solution.length} moves, ${Math.round(stats.elapsedMs)}ms)`,
+    );
+    completionStatus = "Solved.";
+    enqueueMoves(solution, FAST_TURN_DURATION_MS);
+  } else {
+    setInputStatus("No solution found.");
+  }
 });
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   resetVisualState();
   setInputStatus("Reset puzzle.");
-  updatePanel();
 });
 
 algorithmForm.addEventListener("submit", (event) => {
@@ -256,8 +273,6 @@ algorithmForm.addEventListener("submit", (event) => {
     setInputStatus(error instanceof Error ? error.message : "Invalid algorithm.");
   }
 });
-
-updatePanel();
 
 function resize() {
   const width = Math.max(1, Math.round(puzzleViewport.clientWidth));
@@ -297,16 +312,11 @@ function setInputStatus(message: string) {
   inputStatus.textContent = message;
 }
 
-function updatePanel() {
-  const history = formatAlgorithm(moveHistory);
-
-  historyStatus.textContent = history || "None";
-}
-
 function resetVisualState() {
   activeTurn = undefined;
   turnQueue.length = 0;
   moveHistory = [];
+  engineState = createSolvedState();
   completionStatus = undefined;
 
   puzzleFacets.forEach((facet) => {
@@ -328,7 +338,6 @@ function enqueueMoves(moves: readonly Move[], durationMs: number) {
   }
 
   turnQueue.push(...moves.map((move) => ({ move, durationMs })));
-  updatePanel();
 }
 
 function updateTurnAnimation(now: number) {
@@ -336,8 +345,6 @@ function updateTurnAnimation(now: number) {
     const next = turnQueue.shift();
 
     if (!next) {
-      moveStatus.textContent = "Idle";
-
       if (completionStatus && moveHistory.length === 0) {
         setInputStatus(completionStatus);
         completionStatus = undefined;
@@ -347,8 +354,6 @@ function updateTurnAnimation(now: number) {
     }
 
     activeTurn = createTurnAnimation(next.move, next.durationMs, now);
-    moveStatus.textContent = `${formatMove(activeTurn.move)} (${activeTurn.facets.length} facets)`;
-    updatePanel();
   }
 
   const t = Math.min((now - activeTurn.startedAt) / activeTurn.durationMs, 1);
@@ -372,8 +377,8 @@ function updateTurnAnimation(now: number) {
         .multiply(turn.startQuaternion);
       turn.facet.center.copy(turn.facet.object.position);
     });
+    engineState = applyMove(engineState, completedTurn.move);
     moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
-    updatePanel();
     activeTurn = undefined;
   }
 }
