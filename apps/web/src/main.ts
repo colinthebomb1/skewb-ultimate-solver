@@ -1,16 +1,21 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import {
+  applyAlgorithm,
+  applyMove,
+  createSolvedState,
   formatAlgorithm,
   formatMove,
-  invertAlgorithm,
+  isSolved,
   parseAlgorithm,
   parseMove,
   simplifyAlgorithm,
   MOVE_AXES,
   type Move,
   type MoveAxis,
+  type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
+import { bidirectionalBfsSolver } from "@skewb-ultimate/solvers";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -179,7 +184,9 @@ scene.add(puzzleGroup);
 let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
+let engineState: PuzzleState = createSolvedState();
 let completionStatus: string | undefined;
+let solving = false;
 
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
@@ -211,26 +218,41 @@ document.querySelector<HTMLButtonElement>("[data-short-scramble]")?.addEventList
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
-document.querySelector<HTMLButtonElement>("[data-solve-inverse]")?.addEventListener("click", () => {
+const solveButton = document.querySelector<HTMLButtonElement>("[data-solve-inverse]");
+
+solveButton?.addEventListener("click", async () => {
+  if (solving) return;
+
   const pendingMoves = [
     ...(activeTurn ? [activeTurn.move] : []),
     ...turnQueue.map((turn) => turn.move),
   ];
-  const projectedHistory = simplifyAlgorithm([
-    ...moveHistory,
-    ...pendingMoves,
-  ]);
-  const solution = invertAlgorithm(projectedHistory);
+  const projectedState = applyAlgorithm(engineState, pendingMoves);
 
-  if (solution.length === 0) {
+  if (isSolved(projectedState)) {
     setInputStatus("Already solved.");
-    updatePanel();
     return;
   }
 
-  setInputStatus(`Playing inverse: ${formatAlgorithm(solution)}`);
-  completionStatus = "Solved.";
-  enqueueMoves(solution, FAST_TURN_DURATION_MS);
+  solving = true;
+  if (solveButton) solveButton.disabled = true;
+  setInputStatus("Solving…");
+
+  const result = await bidirectionalBfsSolver().solve(projectedState);
+
+  solving = false;
+  if (solveButton) solveButton.disabled = false;
+
+  if (result.status === "solved") {
+    const { solution, stats } = result;
+    setInputStatus(
+      `Solution: ${formatAlgorithm(solution)} (${solution.length} moves, ${Math.round(stats.elapsedMs)}ms)`,
+    );
+    completionStatus = "Solved.";
+    enqueueMoves(solution, FAST_TURN_DURATION_MS);
+  } else {
+    setInputStatus("No solution found.");
+  }
 });
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
@@ -307,6 +329,7 @@ function resetVisualState() {
   activeTurn = undefined;
   turnQueue.length = 0;
   moveHistory = [];
+  engineState = createSolvedState();
   completionStatus = undefined;
 
   puzzleFacets.forEach((facet) => {
@@ -372,6 +395,7 @@ function updateTurnAnimation(now: number) {
         .multiply(turn.startQuaternion);
       turn.facet.center.copy(turn.facet.object.position);
     });
+    engineState = applyMove(engineState, completedTurn.move);
     moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
     updatePanel();
     activeTurn = undefined;
