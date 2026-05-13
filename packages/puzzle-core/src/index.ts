@@ -15,7 +15,7 @@ export type Orientation = readonly [number, number, number, number];
 
 export type PuzzleState = {
   pieces: readonly PieceId[];
-  orientations: readonly Orientation[];
+  orientations: readonly number[];
 };
 
 export const MOVE_AXES: readonly MoveAxis[] = ["L", "R", "D", "B"] as const;
@@ -48,7 +48,6 @@ export function slotIdForPiece(piece: PieceId): SlotId {
 }
 
 const SLOT_INDEX_BY_ID = new Map(SLOT_IDS.map((id, index) => [id, index]));
-const IDENTITY_ORIENTATION: Orientation = [0, 0, 0, 1];
 
 type MoveCycle = { sourceIndex: number; targetIndex: number };
 
@@ -70,10 +69,63 @@ const MOVE_QUATERNIONS: Record<MoveAxis, Orientation> = Object.fromEntries(
   MOVE_AXES.map((axis) => [axis, quaternionFromAxisAngle(AXIS_VECTORS[axis], 1)]),
 ) as Record<MoveAxis, Orientation>;
 
+// Enumerate all reachable orientation quaternions. Identity is always index 0.
+// The 4 Skewb axes generate the tetrahedral rotation group (order 12).
+const ORIENTATION_QUATERNIONS: Orientation[] = (() => {
+  const quatKey = (q: Orientation) =>
+    `${Math.round(q[0] * 100000)},${Math.round(q[1] * 100000)},${Math.round(q[2] * 100000)},${Math.round(q[3] * 100000)}`;
+  const identity: Orientation = [0, 0, 0, 1];
+  const known = new Map<string, number>([[quatKey(identity), 0]]);
+  const result: Orientation[] = [identity];
+  let frontier: Orientation[] = [identity];
+
+  while (frontier.length > 0) {
+    const next: Orientation[] = [];
+
+    for (const q of frontier) {
+      for (const axis of MOVE_AXES) {
+        const newQ = canonicalizeQuaternion(multiplyQuaternions(MOVE_QUATERNIONS[axis], q));
+        const key = quatKey(newQ);
+
+        if (!known.has(key)) {
+          known.set(key, result.length);
+          result.push(newQ);
+          next.push(newQ);
+        }
+      }
+    }
+
+    frontier = next;
+  }
+
+  return result;
+})();
+
+// ORIENTATION_TRANSITION[axis][orientId] → new orientId after one CW turn.
+const ORIENTATION_TRANSITION: Record<MoveAxis, readonly number[]> = (() => {
+  const quatKey = (q: Orientation) =>
+    `${Math.round(q[0] * 100000)},${Math.round(q[1] * 100000)},${Math.round(q[2] * 100000)},${Math.round(q[3] * 100000)}`;
+  const byKey = new Map(ORIENTATION_QUATERNIONS.map((q, i) => [quatKey(q), i]));
+
+  return Object.fromEntries(
+    MOVE_AXES.map((axis) => [
+      axis,
+      ORIENTATION_QUATERNIONS.map((q) => {
+        const newQ = canonicalizeQuaternion(multiplyQuaternions(MOVE_QUATERNIONS[axis], q));
+        return byKey.get(quatKey(newQ))!;
+      }),
+    ]),
+  ) as unknown as Record<MoveAxis, readonly number[]>;
+})();
+
+export function orientationQuaternion(id: number): Orientation {
+  return ORIENTATION_QUATERNIONS[id]!;
+}
+
 export function createSolvedState(): PuzzleState {
   return {
     pieces: SLOT_IDS.map((_, i) => i),
-    orientations: SLOT_IDS.map(() => IDENTITY_ORIENTATION),
+    orientations: SLOT_IDS.map(() => 0),
   };
 }
 
@@ -105,8 +157,7 @@ export function applyAlgorithm(state: PuzzleState, moves: readonly Move[]): Puzz
 
 export function isSolved(state: PuzzleState): boolean {
   return state.pieces.every((pieceId, index) =>
-    pieceId === index &&
-    isIdentityOrientation(state.orientations[index]!),
+    pieceId === index && state.orientations[index] === 0,
   );
 }
 
@@ -191,13 +242,11 @@ function normalizeTurnAmount(amount: number): MoveAmount | 0 {
 function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
   const nextPieces = [...state.pieces];
   const nextOrientations = [...state.orientations];
-  const rotation = MOVE_QUATERNIONS[axis];
+  const transition = ORIENTATION_TRANSITION[axis];
 
   for (const { sourceIndex, targetIndex } of MOVE_CYCLES[axis]) {
     nextPieces[targetIndex] = state.pieces[sourceIndex]!;
-    nextOrientations[targetIndex] = canonicalizeQuaternion(
-      multiplyQuaternions(rotation, state.orientations[sourceIndex]!),
-    );
+    nextOrientations[targetIndex] = transition[state.orientations[sourceIndex]!]!;
   }
 
   return { pieces: nextPieces, orientations: nextOrientations };
@@ -321,16 +370,6 @@ function cleanQuaternionValue(value: number): number {
   return Math.abs(value) < 0.0000000001 ? 0 : value;
 }
 
-function isIdentityOrientation(orientation: Orientation): boolean {
-  const canonical = canonicalizeQuaternion(orientation);
-
-  return (
-    Math.abs(canonical[0]) < 0.000001 &&
-    Math.abs(canonical[1]) < 0.000001 &&
-    Math.abs(canonical[2]) < 0.000001 &&
-    Math.abs(canonical[3] - 1) < 0.000001
-  );
-}
 
 function normalize(vector: Vector3): Vector3 {
   const length = magnitude(vector);

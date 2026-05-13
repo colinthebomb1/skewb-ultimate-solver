@@ -7,7 +7,6 @@ import {
   simplifyAlgorithm,
   type Move,
   type MoveAxis,
-  type Orientation,
   type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
 
@@ -271,20 +270,6 @@ function search(context: SearchContext): Move[] | undefined {
   return undefined;
 }
 
-const orientationRegistry = new Map<string, number>();
-
-function orientationKey(orientation: Orientation): number {
-  const raw = `${Math.round(orientation[0] * 100000)},${Math.round(orientation[1] * 100000)},${Math.round(orientation[2] * 100000)},${Math.round(orientation[3] * 100000)}`;
-  let id = orientationRegistry.get(raw);
-
-  if (id === undefined) {
-    id = orientationRegistry.size;
-    orientationRegistry.set(raw, id);
-  }
-
-  return id;
-}
-
 function serializeState(state: PuzzleState): string {
-  return state.pieces.join(",") + "|" + state.orientations.map(orientationKey).join(",");
+  return String.fromCharCode(...state.pieces, ...state.orientations);
 }
