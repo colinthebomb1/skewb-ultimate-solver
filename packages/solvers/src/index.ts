@@ -25,7 +25,7 @@ export type SolveResult = {
   };
 };
 
-export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "random-walk";
+export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "bidirectional-ida-star" | "random-walk";
 
 export type Solver = {
   id: string;
@@ -282,7 +282,7 @@ export function idaStarSolver(): Solver {
     name: "IDA*",
     async solve(startState, options = {}) {
       const startedAt = performance.now();
-      const maxNodes = options.maxNodes ?? 1_000_000;
+      const maxNodes = options.maxNodes ?? Infinity;
       const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
       const elapsed = () => performance.now() - startedAt;
 
@@ -292,7 +292,7 @@ export function idaStarSolver(): Solver {
 
       let threshold = idaHeuristic(startState);
 
-      while (stats.nodesExpanded < maxNodes) {
+      while (true) {
         stats.maxDepthReached = threshold;
         const result = idaSearch(startState, 0, threshold, [], undefined, stats, maxNodes);
 
@@ -307,6 +307,125 @@ export function idaStarSolver(): Solver {
       return { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
     },
   };
+}
+
+export function bidirectionalIdaStarSolver(): Solver {
+  return {
+    id: "bidirectional-ida-star",
+    name: "Bidirectional IDA*",
+    async solve(startState) {
+      const startedAt = performance.now();
+      const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
+      const elapsed = () => performance.now() - startedAt;
+
+      if (isSolved(startState)) {
+        return { status: "solved", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      }
+
+      const goalState = createSolvedState();
+
+      for (let bound = idaHeuristic(startState); ; bound++) {
+        stats.maxDepthReached = bound;
+        const fwdDepth = Math.floor(bound / 2);
+        const bwdDepth = bound - fwdDepth;
+
+        // Forward DFS to fwdDepth — stores all reachable states into frontier
+        const frontier = new Map<string, { path: Move[]; cost: number }>();
+        const fwdPath: Move[] = [];
+        const fwdResult = buildBidaFrontier(
+          startState, 0, bound, fwdDepth, fwdPath, undefined, frontier, stats,
+        );
+        if (fwdResult) {
+          return { status: "solved", solution: fwdResult, stats: { ...stats, elapsedMs: elapsed() } };
+        }
+
+        // Backward DFS from goal to bwdDepth — checks against frontier
+        const bwdPath: Move[] = [];
+        const bwdResult = bidaBwdSearch(
+          goalState, 0, bwdDepth, bound, bwdPath, undefined, frontier, stats,
+        );
+        if (bwdResult) {
+          return { status: "solved", solution: bwdResult, stats: { ...stats, elapsedMs: elapsed() } };
+        }
+      }
+    },
+  };
+}
+
+type FrontierEntry = { path: Move[]; cost: number };
+
+function buildBidaFrontier(
+  state: PuzzleState,
+  g: number,
+  bound: number,
+  maxFwdDepth: number,
+  path: Move[],
+  prevAxis: MoveAxis | undefined,
+  frontier: Map<string, FrontierEntry>,
+  stats: SolveResult["stats"],
+): Move[] | undefined {
+  stats.nodesExpanded++;
+
+  if (isSolved(state)) return [...path];
+
+  if (g + idaHeuristic(state) > bound) return undefined;
+
+  const key = serializeState(state);
+  const existing = frontier.get(key);
+  if (!existing || existing.cost > g) {
+    frontier.set(key, { path: [...path], cost: g });
+  }
+
+  if (g >= maxFwdDepth) return undefined;
+
+  for (const axis of MOVE_AXES) {
+    if (axis === prevAxis) continue;
+    for (const amount of SEARCH_AMOUNTS) {
+      const move = { axis, amount };
+      path.push(move);
+      const result = buildBidaFrontier(
+        applyMove(state, move), g + 1, bound, maxFwdDepth, path, axis, frontier, stats,
+      );
+      path.pop();
+      if (result) return result;
+    }
+  }
+  return undefined;
+}
+
+function bidaBwdSearch(
+  state: PuzzleState,
+  g: number,
+  maxBwdDepth: number,
+  bound: number,
+  path: Move[],
+  prevAxis: MoveAxis | undefined,
+  frontier: Map<string, FrontierEntry>,
+  stats: SolveResult["stats"],
+): Move[] | undefined {
+  stats.nodesExpanded++;
+
+  const key = serializeState(state);
+  const fwdEntry = frontier.get(key);
+  if (fwdEntry && fwdEntry.cost + g <= bound) {
+    return simplifyAlgorithm([...fwdEntry.path, ...invertAlgorithm(path)]);
+  }
+
+  if (g >= maxBwdDepth) return undefined;
+
+  for (const axis of MOVE_AXES) {
+    if (axis === prevAxis) continue;
+    for (const amount of SEARCH_AMOUNTS) {
+      const move = { axis, amount };
+      path.push(move);
+      const result = bidaBwdSearch(
+        applyMove(state, move), g + 1, maxBwdDepth, bound, path, axis, frontier, stats,
+      );
+      path.pop();
+      if (result) return result;
+    }
+  }
+  return undefined;
 }
 
 function idaHeuristic(state: PuzzleState): number {

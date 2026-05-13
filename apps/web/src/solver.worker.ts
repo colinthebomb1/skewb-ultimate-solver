@@ -1,5 +1,6 @@
 import {
   bidirectionalBfsSolver,
+  bidirectionalIdaStarSolver,
   depthLimitedDfsSolver,
   idaStarSolver,
   type SolverId,
@@ -13,6 +14,7 @@ export type WorkerRequest = {
 
 const solvers = {
   "bidirectional-bfs": bidirectionalBfsSolver(),
+  "bidirectional-ida-star": bidirectionalIdaStarSolver(),
   "ida-star": idaStarSolver(),
   "depth-limited-dfs": depthLimitedDfsSolver(),
 } as const;

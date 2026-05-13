@@ -95,6 +95,7 @@ app.innerHTML = `
       <div class="solver-row">
         <select id="solver-select" aria-label="Solver algorithm">
           <option value="bidirectional-bfs">Bidirectional BFS</option>
+          <option value="bidirectional-ida-star">Bidirectional IDA*</option>
           <option value="ida-star">IDA*</option>
           <option value="depth-limited-dfs">Depth-Limited DFS</option>
         </select>
