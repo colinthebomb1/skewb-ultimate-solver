@@ -94,7 +94,7 @@ body {
 }
 
 .primary-actions {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .primary-actions button {
@@ -110,6 +110,111 @@ body {
 .primary-actions button:first-child:hover {
   border-color: #0b5f59;
   background: #0b5f59;
+}
+
+.solver-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.solver-row select {
+  min-height: 44px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #111827;
+  background: #f8fafc;
+  font: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23748196' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 34px;
+}
+
+.solver-row select:focus {
+  border-color: #0f766e;
+  outline: 3px solid rgb(15 118 110 / 18%);
+}
+
+.solver-row select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+[data-solve] {
+  min-height: 44px;
+  min-width: 80px;
+  border: 1px solid #0f766e !important;
+  border-radius: 8px;
+  padding: 0 16px;
+  color: #ffffff !important;
+  background: #0f766e !important;
+  font: inherit;
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+[data-solve]:hover {
+  border-color: #0b5f59 !important;
+  background: #0b5f59 !important;
+  transform: translateY(-1px);
+}
+
+[data-solve]:active {
+  transform: translateY(0);
+}
+
+[data-solve]:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.solve-stats {
+  margin: 0;
+  border: 1px solid #d9dee5;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 14px;
+  gap: 12px;
+  border-bottom: 1px solid #eef1f4;
+}
+
+.stat-row:last-child {
+  border-bottom: none;
+}
+
+.stat-row dt {
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-row dd {
+  margin: 0;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 .scramble-length-row {

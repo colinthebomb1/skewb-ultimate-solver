@@ -15,7 +15,8 @@ import {
   type MoveAxis,
   type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
-import type { SolveResult } from "@skewb-ultimate/solvers";
+import type { SolveResult, SolverId } from "@skewb-ultimate/solvers";
+import type { WorkerRequest } from "./solver.worker";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -89,9 +90,30 @@ app.innerHTML = `
       </header>
       <div class="action-row primary-actions">
         <button type="button" data-scramble>Scramble</button>
-        <button type="button" data-solve-inverse>Solve</button>
         <button type="button" data-clear>Reset</button>
       </div>
+      <div class="solver-row">
+        <select id="solver-select" aria-label="Solver algorithm">
+          <option value="bidirectional-bfs">Bidirectional BFS</option>
+          <option value="ida-star">IDA*</option>
+          <option value="depth-limited-dfs">Depth-Limited DFS</option>
+        </select>
+        <button type="button" data-solve>Solve</button>
+      </div>
+      <dl class="solve-stats" hidden>
+        <div class="stat-row">
+          <dt>Algorithm</dt><dd id="stat-algorithm">—</dd>
+        </div>
+        <div class="stat-row">
+          <dt>Solution</dt><dd id="stat-solution">—</dd>
+        </div>
+        <div class="stat-row">
+          <dt>Time</dt><dd id="stat-time">—</dd>
+        </div>
+        <div class="stat-row">
+          <dt>Nodes</dt><dd id="stat-nodes">—</dd>
+        </div>
+      </dl>
       <div class="scramble-length-row">
         <label for="scramble-length">Length</label>
         <input type="range" id="scramble-length" min="1" max="25" value="12" />
@@ -188,7 +210,7 @@ let solving = false;
 
 const solverWorker = new Worker(new URL("./solver.worker.ts", import.meta.url), { type: "module" });
 
-function solveAsync(state: PuzzleState): Promise<SolveResult> {
+function solveAsync(solverId: SolverId, state: PuzzleState): Promise<SolveResult> {
   return new Promise((resolve, reject) => {
     const onMessage = (event: MessageEvent<SolveResult>) => {
       solverWorker.removeEventListener("message", onMessage);
@@ -202,7 +224,8 @@ function solveAsync(state: PuzzleState): Promise<SolveResult> {
     };
     solverWorker.addEventListener("message", onMessage);
     solverWorker.addEventListener("error", onError);
-    solverWorker.postMessage(state);
+    const request: WorkerRequest = { solverId, state };
+    solverWorker.postMessage(request);
   });
 }
 
@@ -211,6 +234,12 @@ const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
 const inputStatus = requireElement<HTMLElement>("#input-status");
 const scrambleLengthInput = requireElement<HTMLInputElement>("#scramble-length");
 const scrambleLengthValue = requireElement<HTMLElement>("#scramble-length-value");
+const solverSelect = requireElement<HTMLSelectElement>("#solver-select");
+const solveStats = requireElement<HTMLElement>(".solve-stats");
+const statAlgorithm = requireElement<HTMLElement>("#stat-algorithm");
+const statSolution = requireElement<HTMLElement>("#stat-solution");
+const statTime = requireElement<HTMLElement>("#stat-time");
+const statNodes = requireElement<HTMLElement>("#stat-nodes");
 
 scrambleLengthInput.addEventListener("input", () => {
   scrambleLengthValue.textContent = `${scrambleLengthInput.value} moves`;
@@ -234,7 +263,7 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
 });
 
-const solveButton = document.querySelector<HTMLButtonElement>("[data-solve-inverse]");
+const solveButton = document.querySelector<HTMLButtonElement>("[data-solve]");
 
 solveButton?.addEventListener("click", async () => {
   if (solving) return;
@@ -250,24 +279,28 @@ solveButton?.addEventListener("click", async () => {
     return;
   }
 
+  const solverId = solverSelect.value as SolverId;
+  const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
+
   solving = true;
   if (solveButton) solveButton.disabled = true;
-  setInputStatus("Solving…");
+  solverSelect.disabled = true;
+  setInputStatus(`Solving with ${solverName}…`);
 
-  const result = await solveAsync(projectedState);
+  const result = await solveAsync(solverId, projectedState);
 
   solving = false;
   if (solveButton) solveButton.disabled = false;
+  solverSelect.disabled = false;
 
   if (result.status === "solved") {
     const { solution, stats } = result;
-    setInputStatus(
-      `Solution: ${formatAlgorithm(solution)} (${solution.length} moves, ${Math.round(stats.elapsedMs)}ms)`,
-    );
+    setInputStatus(`Solution found: ${formatAlgorithm(solution)}`);
+    showStats(solverName, solution.length, stats.elapsedMs, stats.nodesExpanded);
     completionStatus = "Solved.";
     enqueueMoves(solution, FAST_TURN_DURATION_MS);
   } else {
-    setInputStatus("No solution found.");
+    setInputStatus("No solution found within node limit.");
   }
 });
 
@@ -330,6 +363,14 @@ function requireElement<T extends Element>(selector: string): T {
 
 function setInputStatus(message: string) {
   inputStatus.textContent = message;
+}
+
+function showStats(algorithm: string, moves: number, elapsedMs: number, nodes: number) {
+  statAlgorithm.textContent = algorithm;
+  statSolution.textContent = `${moves} move${moves === 1 ? "" : "s"}`;
+  statTime.textContent = elapsedMs < 1 ? "<1 ms" : `${Math.round(elapsedMs).toLocaleString()} ms`;
+  statNodes.textContent = nodes.toLocaleString();
+  solveStats.removeAttribute("hidden");
 }
 
 function resetVisualState() {
@@ -919,6 +960,3 @@ function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
-function isAxisId(value: string | undefined): value is AxisId {
-  return value === "L" || value === "R" || value === "D" || value === "B";
-}

@@ -25,6 +25,8 @@ export type SolveResult = {
   };
 };
 
+export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "random-walk";
+
 export type Solver = {
   id: string;
   name: string;
@@ -272,4 +274,81 @@ function search(context: SearchContext): Move[] | undefined {
 
 function serializeState(state: PuzzleState): string {
   return String.fromCharCode(...state.pieces, ...state.orientations);
+}
+
+export function idaStarSolver(): Solver {
+  return {
+    id: "ida-star",
+    name: "IDA*",
+    async solve(startState, options = {}) {
+      const startedAt = performance.now();
+      const maxNodes = options.maxNodes ?? 1_000_000;
+      const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
+      const elapsed = () => performance.now() - startedAt;
+
+      if (isSolved(startState)) {
+        return { status: "solved", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      }
+
+      let threshold = idaHeuristic(startState);
+
+      while (stats.nodesExpanded < maxNodes) {
+        stats.maxDepthReached = threshold;
+        const result = idaSearch(startState, 0, threshold, [], undefined, stats, maxNodes);
+
+        if (Array.isArray(result)) {
+          return { status: "solved", solution: result, stats: { ...stats, elapsedMs: elapsed() } };
+        }
+
+        if (result === Infinity) break;
+        threshold = result;
+      }
+
+      return { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+    },
+  };
+}
+
+function idaHeuristic(state: PuzzleState): number {
+  let wrong = 0;
+  for (let i = 0; i < state.pieces.length; i++) {
+    if (state.pieces[i] !== i || state.orientations[i] !== 0) wrong++;
+  }
+  return Math.ceil(wrong / 3);
+}
+
+// Returns a solution path (array) if found, the minimum f that exceeded the threshold if not, or Infinity if exhausted.
+function idaSearch(
+  state: PuzzleState,
+  g: number,
+  threshold: number,
+  path: Move[],
+  previousAxis: MoveAxis | undefined,
+  stats: SolveResult["stats"],
+  maxNodes: number,
+): Move[] | number {
+  const f = g + idaHeuristic(state);
+  if (f > threshold) return f;
+  if (isSolved(state)) return [...path];
+
+  let minF = Infinity;
+
+  for (const axis of MOVE_AXES) {
+    if (axis === previousAxis) continue;
+
+    for (const amount of SEARCH_AMOUNTS) {
+      if (stats.nodesExpanded >= maxNodes) return minF;
+
+      stats.nodesExpanded++;
+      const nextState = applyMove(state, { axis, amount });
+      path.push({ axis, amount });
+      const result = idaSearch(nextState, g + 1, threshold, path, axis, stats, maxNodes);
+      path.pop();
+
+      if (Array.isArray(result)) return result;
+      if (result < minF) minF = result;
+    }
+  }
+
+  return minF;
 }
