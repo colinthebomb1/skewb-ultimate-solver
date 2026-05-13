@@ -15,7 +15,7 @@ import {
   type MoveAxis,
   type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
-import { bidirectionalBfsSolver } from "@skewb-ultimate/solvers";
+import type { SolveResult } from "@skewb-ultimate/solvers";
 import "./style.css";
 
 type AxisId = MoveAxis;
@@ -186,6 +186,26 @@ let engineState: PuzzleState = createSolvedState();
 let completionStatus: string | undefined;
 let solving = false;
 
+const solverWorker = new Worker(new URL("./solver.worker.ts", import.meta.url), { type: "module" });
+
+function solveAsync(state: PuzzleState): Promise<SolveResult> {
+  return new Promise((resolve, reject) => {
+    const onMessage = (event: MessageEvent<SolveResult>) => {
+      solverWorker.removeEventListener("message", onMessage);
+      solverWorker.removeEventListener("error", onError);
+      resolve(event.data);
+    };
+    const onError = (event: ErrorEvent) => {
+      solverWorker.removeEventListener("message", onMessage);
+      solverWorker.removeEventListener("error", onError);
+      reject(new Error(event.message));
+    };
+    solverWorker.addEventListener("message", onMessage);
+    solverWorker.addEventListener("error", onError);
+    solverWorker.postMessage(state);
+  });
+}
+
 const algorithmForm = requireElement<HTMLFormElement>(".algorithm-form");
 const algorithmInput = requireElement<HTMLInputElement>("#algorithm-input");
 const inputStatus = requireElement<HTMLElement>("#input-status");
@@ -234,7 +254,7 @@ solveButton?.addEventListener("click", async () => {
   if (solveButton) solveButton.disabled = true;
   setInputStatus("Solving…");
 
-  const result = await bidirectionalBfsSolver().solve(projectedState);
+  const result = await solveAsync(projectedState);
 
   solving = false;
   if (solveButton) solveButton.disabled = false;
