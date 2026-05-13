@@ -177,12 +177,20 @@ function search(context: SearchContext): Move[] | undefined {
   return undefined;
 }
 
-function serializeState(state: PuzzleState): string {
-  return state.pieces.map((pieceId, index) => {
-    const orientation = state.orientations[index]!
-      .map((value) => value.toFixed(6))
-      .join(",");
+const orientationRegistry = new Map<string, number>();
 
-    return `${pieceId}:${orientation}`;
-  }).join("|");
+function orientationKey(orientation: Orientation): number {
+  const raw = `${Math.round(orientation[0] * 100000)},${Math.round(orientation[1] * 100000)},${Math.round(orientation[2] * 100000)},${Math.round(orientation[3] * 100000)}`;
+  let id = orientationRegistry.get(raw);
+
+  if (id === undefined) {
+    id = orientationRegistry.size;
+    orientationRegistry.set(raw, id);
+  }
+
+  return id;
+}
+
+function serializeState(state: PuzzleState): string {
+  return state.pieces.join(",") + "|" + state.orientations.map(orientationKey).join(",");
 }
