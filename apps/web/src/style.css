@@ -94,20 +94,22 @@ body {
 }
 
 .primary-actions {
-  grid-template-columns: 1.1fr 1fr 0.9fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .primary-actions button {
   min-height: 48px;
 }
 
-.primary-actions button:first-child {
+.primary-actions button:first-child,
+.primary-actions button:nth-child(2) {
   border-color: #0f766e;
   color: #ffffff;
   background: #0f766e;
 }
 
-.primary-actions button:first-child:hover {
+.primary-actions button:first-child:hover,
+.primary-actions button:nth-child(2):hover {
   border-color: #0b5f59;
   background: #0b5f59;
 }

@@ -36,6 +36,30 @@ describe("solver interface", () => {
     expect(result.solution.length).toBeLessThanOrEqual(5);
   });
 
+  it("does not accept the old piece-only shortcut after orientation tracking", async () => {
+    const scramble = parseAlgorithm("L R' D B R L' D' B R D L'");
+    const scrambled = applyAlgorithm(createSolvedState(), scramble);
+    const result = await depthLimitedDfsSolver().solve(scrambled, {
+      maxDepth: 2,
+      maxNodes: 50_000,
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.solution).toEqual([]);
+  });
+
+  it("solves a six-move scramble when the depth limit allows it", async () => {
+    const scramble = parseAlgorithm("R' L D' B D' R");
+    const scrambled = applyAlgorithm(createSolvedState(), scramble);
+    const result = await depthLimitedDfsSolver().solve(scrambled, {
+      maxDepth: 8,
+      maxNodes: 100_000,
+    });
+
+    expect(result.status).toBe("solved");
+    expect(isSolved(applyAlgorithm(scrambled, result.solution))).toBe(true);
+  });
+
   it("fails when the depth limit is too low", async () => {
     const scrambled = applyAlgorithm(createSolvedState(), parseAlgorithm("L R D"));
     const result = await depthLimitedDfsSolver().solve(scrambled, {

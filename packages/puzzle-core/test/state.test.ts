@@ -11,11 +11,12 @@ import {
 } from "../src";
 
 describe("puzzle state", () => {
-  it("creates a solved 14-slot permutation state", () => {
+  it("creates a solved 14-slot oriented state", () => {
     const state = createSolvedState();
 
     expect(SLOT_IDS).toHaveLength(14);
     expect(state.pieces).toEqual(SLOT_IDS);
+    expect(state.orientations).toHaveLength(SLOT_IDS.length);
     expect(isSolved(state)).toBe(true);
   });
 
@@ -56,5 +57,17 @@ describe("puzzle state", () => {
     );
 
     expect(isSolved(state)).toBe(true);
+  });
+
+  it("does not treat a piece-only shortcut as solved when orientation is wrong", () => {
+    const scramble = parseAlgorithm("L R' D B R L' D' B R D L'");
+    const coarseShortcut = parseAlgorithm("D' R");
+    const state = applyAlgorithm(
+      applyAlgorithm(createSolvedState(), scramble),
+      coarseShortcut,
+    );
+
+    expect(state.pieces).toEqual(SLOT_IDS);
+    expect(isSolved(state)).toBe(false);
   });
 });

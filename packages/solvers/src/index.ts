@@ -178,5 +178,11 @@ function search(context: SearchContext): Move[] | undefined {
 }
 
 function serializeState(state: PuzzleState): string {
-  return state.pieces.join("|");
+  return state.pieces.map((pieceId, index) => {
+    const orientation = state.orientations[index]!
+      .map((value) => value.toFixed(6))
+      .join(",");
+
+    return `${pieceId}:${orientation}`;
+  }).join("|");
 }
