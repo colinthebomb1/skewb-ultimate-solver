@@ -262,6 +262,7 @@ document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("
 
   setInputStatus(`Scramble (${length}): ${formatAlgorithm(scramble)}`);
   enqueueMoves(scramble, FAST_TURN_DURATION_MS);
+  setHashScramble(scramble);
 });
 
 const solveButton = document.querySelector<HTMLButtonElement>("[data-solve]");
@@ -307,6 +308,7 @@ solveButton?.addEventListener("click", async () => {
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   resetVisualState();
+  clearHashScramble();
   setInputStatus("Reset puzzle.");
 });
 
@@ -351,6 +353,7 @@ viewportResizeObserver.observe(puzzleViewport);
 window.addEventListener("resize", resize);
 resize();
 animate();
+loadHashScramble();
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -364,6 +367,28 @@ function requireElement<T extends Element>(selector: string): T {
 
 function setInputStatus(message: string) {
   inputStatus.textContent = message;
+}
+
+function setHashScramble(scramble: readonly Move[]) {
+  const encoded = formatAlgorithm(scramble).replace(/ /g, "_");
+  history.replaceState(null, "", `#${encoded}`);
+}
+
+function clearHashScramble() {
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
+function loadHashScramble() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  try {
+    const scramble = parseAlgorithm(hash.replace(/_/g, " "));
+    if (scramble.length === 0) return;
+    enqueueMoves(scramble, FAST_TURN_DURATION_MS);
+    setInputStatus(`Loaded: ${formatAlgorithm(scramble)}`);
+  } catch {
+    // ignore malformed hash
+  }
 }
 
 function showStats(algorithm: string, moves: number, elapsedMs: number, nodes: number) {
