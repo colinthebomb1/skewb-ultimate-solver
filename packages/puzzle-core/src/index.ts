@@ -323,12 +323,10 @@ function createMoveTransform(axis: MoveAxis, amount: MoveAmount): MoveTransform 
   const sourceIndexes: number[] = [];
   const targetIndexes: number[] = [];
 
-  sourceToTarget.forEach((targetIndex, sourceIndex) => {
-    if (sourceIndex !== targetIndex) {
-      sourceIndexes.push(sourceIndex);
-      targetIndexes.push(targetIndex);
-    }
-  });
+  for (const { sourceIndex } of MOVE_CYCLES[axis]) {
+    sourceIndexes.push(sourceIndex);
+    targetIndexes.push(sourceToTarget[sourceIndex]!);
+  }
 
   const clockwiseTransition = ORIENTATION_TRANSITION[axis];
   const orientationTransition = amount === 1
