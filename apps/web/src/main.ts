@@ -54,9 +54,21 @@ type QueuedTurn = {
   durationMs: number;
 };
 
+// Colors sampled from cubicdb's Skewb Ultimate implementation, which
+// was calibrated against the physical Meffert puzzle sticker colors.
 const faceColors = [
-  0xffffff, 0xf4d03f, 0xd9342b, 0x2274a5, 0x2fb344, 0xf28c28,
-  0x8e44ad, 0x2dd4bf, 0x1f2937, 0xf472b6, 0x9ca3af, 0x8b5e34,
+  0xe6e6e6, // white (off-white sticker)
+  0xffeb3b, // yellow
+  0xdc422f, // red
+  0x3d81f6, // blue
+  0x009d54, // green
+  0xe87000, // orange
+  0x8a1bff, // violet
+  0x53b1f3, // light blue
+  0xdcd3a5, // light yellow (cream)
+  0xed96a1, // pink
+  0x4ad931, // light green (lime)
+  0x4b515a, // gray
 ];
 
 // stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
@@ -1153,7 +1165,7 @@ function enterPaintMode() {
   colorPalette.querySelectorAll(".palette-swatch").forEach((s, i) =>
     s.classList.toggle("palette-swatch--active", i === 0),
   );
-  for (const [, mat] of stickerMaterials) mat.color.set(0xffffff);
+  for (const [, mat] of stickerMaterials) mat.color.set(0xe6e6e6);
   paintToggleBtn.textContent = "← Exit";
   paintToggleBtn.dataset.active = "";
   normalPanel.setAttribute("hidden", "");
