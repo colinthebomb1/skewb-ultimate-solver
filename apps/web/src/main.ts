@@ -322,6 +322,7 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
   hideStepper();
+  hideStats();
   resetVisualState();
   const length = Number(scrambleLengthInput.value);
   const scramble = createRandomScramble(length);
@@ -373,6 +374,7 @@ solveButton?.addEventListener("click", async () => {
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   hideStepper();
+  hideStats();
   resetVisualState();
   clearHashScramble();
   setInputStatus("Reset puzzle.");
@@ -463,6 +465,14 @@ function showStats(algorithm: string, moves: number, elapsedMs: number, nodes: n
   statTime.textContent = elapsedMs < 1 ? "<1 ms" : `${Math.round(elapsedMs).toLocaleString()} ms`;
   statNodes.textContent = nodes.toLocaleString();
   solveStats.removeAttribute("hidden");
+}
+
+function hideStats() {
+  solveStats.setAttribute("hidden", "");
+  statAlgorithm.textContent = "—";
+  statSolution.textContent = "—";
+  statTime.textContent = "—";
+  statNodes.textContent = "—";
 }
 
 function resetVisualState() {
