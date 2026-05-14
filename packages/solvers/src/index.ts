@@ -136,23 +136,51 @@ export function bidirectionalBfsSolver(): Solver {
       const startKey = serializeState(startState);
       const goalKey = serializeState(goalState);
 
-      const fwdVisited = new Map<string, Move[]>([[startKey, []]]);
-      const bwdVisited = new Map<string, Move[]>([[goalKey, []]]);
+      type BfsNode = {
+        state: PuzzleState;
+        key: string;
+        lastAxis: MoveAxis | undefined;
+        parent: number;
+        move: Move | undefined;
+      };
 
-      type Entry = { state: PuzzleState; key: string; lastAxis: MoveAxis | undefined };
-      let fwdFrontier: Entry[] = [{ state: startState, key: startKey, lastAxis: undefined }];
-      let bwdFrontier: Entry[] = [{ state: goalState, key: goalKey, lastAxis: undefined }];
+      const fwdNodes: BfsNode[] = [
+        { state: startState, key: startKey, lastAxis: undefined, parent: -1, move: undefined },
+      ];
+      const bwdNodes: BfsNode[] = [
+        { state: goalState, key: goalKey, lastAxis: undefined, parent: -1, move: undefined },
+      ];
+      const fwdVisited = new Map<string, number>([[startKey, 0]]);
+      const bwdVisited = new Map<string, number>([[goalKey, 0]]);
+      let fwdFrontier = [0];
+      let bwdFrontier = [0];
+
+      function pathToBfsNode(nodes: BfsNode[], nodeIndex: number): Move[] {
+        const path: Move[] = [];
+        let current = nodeIndex;
+
+        while (current !== -1) {
+          const node = nodes[current]!;
+          if (node.move) path.push(node.move);
+          current = node.parent;
+        }
+
+        path.reverse();
+        return path;
+      }
 
       function expandLevel(
-        frontier: Entry[],
-        visited: Map<string, Move[]>,
-        other: Map<string, Move[]>,
+        frontier: number[],
+        nodes: BfsNode[],
+        visited: Map<string, number>,
+        otherNodes: BfsNode[],
+        other: Map<string, number>,
         forward: boolean,
       ): Move[] | undefined {
-        const next: Entry[] = [];
+        const next: number[] = [];
 
-        for (const { state, key, lastAxis } of frontier) {
-          const path = visited.get(key)!;
+        for (const nodeIndex of frontier) {
+          const { state, lastAxis } = nodes[nodeIndex]!;
 
           for (const axis of MOVE_AXES) {
             if (axis === lastAxis) continue;
@@ -169,18 +197,21 @@ export function bidirectionalBfsSolver(): Solver {
 
               if (visited.has(nextKey)) continue;
 
-              const nextPath = [...path, move];
-              visited.set(nextKey, nextPath);
+              const nextIndex = nodes.length;
+              nodes.push({ state: nextState, key: nextKey, lastAxis: axis, parent: nodeIndex, move });
+              visited.set(nextKey, nextIndex);
               stats.nodesExpanded++;
 
-              if (other.has(nextKey)) {
-                const otherPath = other.get(nextKey)!;
-                const fwdPath = forward ? nextPath : otherPath;
-                const bwdPath = forward ? otherPath : nextPath;
+              const otherIndex = other.get(nextKey);
+              if (otherIndex !== undefined) {
+                const ownPath = pathToBfsNode(nodes, nextIndex);
+                const otherPath = pathToBfsNode(otherNodes, otherIndex);
+                const fwdPath = forward ? ownPath : otherPath;
+                const bwdPath = forward ? otherPath : ownPath;
                 return simplifyAlgorithm([...fwdPath, ...invertAlgorithm(bwdPath)]);
               }
 
-              next.push({ state: nextState, key: nextKey, lastAxis: axis });
+              next.push(nextIndex);
             }
           }
         }
@@ -194,12 +225,16 @@ export function bidirectionalBfsSolver(): Solver {
         stats.maxDepthReached++;
 
         if (fwdFrontier.length > 0) {
-          const solution = expandLevel(fwdFrontier, fwdVisited, bwdVisited, true);
+          const solution = expandLevel(
+            fwdFrontier, fwdNodes, fwdVisited, bwdNodes, bwdVisited, true,
+          );
           if (solution) return { status: "solved", solution, stats: { ...stats, elapsedMs: elapsed() } };
         }
 
         if (bwdFrontier.length > 0) {
-          const solution = expandLevel(bwdFrontier, bwdVisited, fwdVisited, false);
+          const solution = expandLevel(
+            bwdFrontier, bwdNodes, bwdVisited, fwdNodes, fwdVisited, false,
+          );
           if (solution) return { status: "solved", solution, stats: { ...stats, elapsedMs: elapsed() } };
         }
       }
