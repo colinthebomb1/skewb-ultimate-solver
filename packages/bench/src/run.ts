@@ -5,7 +5,7 @@ import {
   type Move,
   type MoveAxis,
 } from "@skewb-ultimate/puzzle-core";
-import { idaStarSolver, bidirectionalBfsSolver } from "@skewb-ultimate/solvers";
+import { bidirectionalBfsSolver, bidirectionalIdaStarSolver } from "@skewb-ultimate/solvers";
 
 function randomScramble(length: number): Move[] {
   const scramble: Move[] = [];
@@ -20,11 +20,11 @@ function randomScramble(length: number): Move[] {
   return scramble;
 }
 
-const ida = idaStarSolver();
+const bida = bidirectionalIdaStarSolver();
 const bfs = bidirectionalBfsSolver();
 const TRIALS = 5;
 
-console.log("\nIDA* benchmark — scramble depth vs solve time");
+console.log("\nBidirectional IDA* benchmark — scramble depth vs solve time");
 console.log("=".repeat(68));
 console.log(
   `${"Depth".padEnd(7)}${"Trials".padEnd(8)}${"Solved".padEnd(8)}${"Avg nodes".padEnd(14)}${"Avg ms".padEnd(10)}${"Max ms"}`,
@@ -36,7 +36,7 @@ for (let depth = 1; depth <= 12; depth++) {
   for (let t = 0; t < TRIALS; t++) {
     const scramble = randomScramble(depth);
     const state = applyAlgorithm(createSolvedState(), scramble);
-    const r = await ida.solve(state, { maxNodes: 50_000_000 });
+    const r = await bida.solve(state, { maxNodes: 50_000_000 });
     results.push(r);
   }
   const solved = results.filter((r) => r.status === "solved").length;
