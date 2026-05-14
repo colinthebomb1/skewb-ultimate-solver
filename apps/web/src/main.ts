@@ -61,14 +61,14 @@ const faceColors = [
   0xffeb3b, // yellow
   0xff2a1a, // red
   0x3d81f6, // blue
-  0x009d54, // green
-  0xe87000, // orange
-  0x8a1bff, // violet
-  0x53b1f3, // light blue
-  0xdcd3a5, // light yellow (cream)
+  0x006e40, // green (darker)
+  0x00b4a0, // teal
+  0x5200d4, // violet (deeper)
+  0x1a84cc, // light blue (darker)
+  0xdbaeff, // light purple
   0xff2288, // pink (hot pink)
   0x66e600, // light green (lime)
-  0x4b515a, // gray
+  0xb8860b, // dark gold
 ];
 
 // stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
