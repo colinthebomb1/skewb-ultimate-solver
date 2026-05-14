@@ -185,7 +185,8 @@ export function bidirectionalBfsSolver(): Solver {
           }
         }
 
-        frontier.splice(0, frontier.length, ...next);
+        frontier.length = 0;
+        for (const entry of next) frontier.push(entry);
         return undefined;
       }
 

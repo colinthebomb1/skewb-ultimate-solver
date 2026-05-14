@@ -7,6 +7,8 @@ import {
   formatAlgorithm,
   formatMove,
   invertAlgorithm,
+  invertMove,
+  isReachablePiecePermutation,
   isSolved,
   orientationQuaternion,
   parseAlgorithm,
@@ -47,28 +49,30 @@ type TurnAnimation = {
   startedAt: number;
   durationMs: number;
   move: Move;
+  onComplete: (() => void) | undefined;
 };
 
 type QueuedTurn = {
   move: Move;
   durationMs: number;
+  onComplete: (() => void) | undefined;
 };
 
-// Colors sampled from cubicdb's Skewb Ultimate implementation, which
-// was calibrated against the physical Meffert puzzle sticker colors.
+// Colors assigned to dodecahedron face indices 0-11, calibrated so the
+// virtual solved state matches the physical Meffert Skewb Ultimate layout.
 const faceColors = [
-  0xe6e6e6, // white (off-white sticker)
-  0xffeb3b, // yellow
-  0xff2a1a, // red
-  0x3d81f6, // blue
-  0x006e40, // green (darker)
-  0x00b4a0, // teal
-  0x5200d4, // violet (deeper)
-  0x1a84cc, // light blue (darker)
-  0xdbaeff, // light purple
-  0xff2288, // pink (hot pink)
-  0x66e600, // light green (lime)
-  0xb8860b, // dark gold
+  0x00b4a0, // face 0: teal
+  0xffeb3b, // face 1: yellow
+  0xff2288, // face 2: hot pink
+  0xb8860b, // face 3: dark gold
+  0xe6e6e6, // face 4: white
+  0x66e600, // face 5: lime
+  0x5bc8f5, // face 6: sky blue
+  0x9400d3, // face 7: purple (purple rain)
+  0xdbaeff, // face 8: light purple
+  0xff2a1a, // face 9: red
+  0x1040a8, // face 10: deep ocean blue
+  0x006e40, // face 11: dark green
 ];
 
 // stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
@@ -120,13 +124,21 @@ app.innerHTML = `
           <button type="button" data-clear>Reset</button>
         </div>
         <div class="solver-row">
+          <button type="button" data-solve>Solve</button>
           <select id="solver-select" aria-label="Solver algorithm">
             <option value="bidirectional-bfs">Bidirectional BFS</option>
             <option value="bidirectional-ida-star">Bidirectional IDA*</option>
             <option value="ida-star">IDA*</option>
             <option value="depth-limited-dfs">Depth-Limited DFS</option>
           </select>
-          <button type="button" data-solve>Solve</button>
+        </div>
+        <div id="solution-stepper" hidden>
+          <div class="stepper-sequence" id="stepper-sequence"></div>
+          <div class="stepper-nav">
+            <button type="button" id="step-back">← Back</button>
+            <span id="step-label">0 / 0</span>
+            <button type="button" id="step-forward">Next →</button>
+          </div>
         </div>
         <dl class="solve-stats" hidden>
           <div class="stat-row">
@@ -186,9 +198,14 @@ app.innerHTML = `
         </header>
         <p class="paint-hint">Pick a color, then click any sticker on the puzzle to paint it. Drag to rotate.</p>
         <div class="palette" id="color-palette" aria-label="Color palette" role="group"></div>
-        <div class="paint-actions">
+        <div class="paint-actions" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
           <button type="button" id="solve-painted">Solve This</button>
+          <button type="button" id="mark-solved">Mark Solved</button>
           <button type="button" id="clear-paint">Clear</button>
+        </div>
+        <div class="paint-actions" style="margin-top:-4px;grid-template-columns:repeat(2,minmax(0,1fr))">
+          <button type="button" id="copy-paint-state" style="background:#f8fafc;color:#4b5563;font-size:12px;min-height:36px">Copy State</button>
+          <button type="button" id="import-paint-state" style="background:#f8fafc;color:#4b5563;font-size:12px;min-height:36px">Import State</button>
         </div>
         <p id="input-status-paint" class="input-status"></p>
       </div>
@@ -219,10 +236,14 @@ controls.minDistance = 4.4;
 controls.maxDistance = 11;
 controls.target.set(0, 0, 0);
 
-const light = new THREE.DirectionalLight(0xffffff, 3);
-light.position.set(3, 5, 4);
-scene.add(light);
-scene.add(new THREE.AmbientLight(0xffffff, 1.4));
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.2);
+keyLight.position.set(3, 5, 4);
+scene.add(keyLight);
+const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
+fillLight.position.set(-3, -1, -4);
+scene.add(fillLight);
+const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+scene.add(ambientLight);
 
 const puzzleGroup = new THREE.Group();
 const puzzleFacets = createVisualPieces();
@@ -247,8 +268,10 @@ let activeTurn: TurnAnimation | undefined;
 const turnQueue: QueuedTurn[] = [];
 let moveHistory: Move[] = [];
 let engineState: PuzzleState = createSolvedState();
-let completionStatus: string | undefined;
 let solving = false;
+let stepSolution: readonly Move[] = [];
+let stepIndex = 0;
+let stepperLocked = false;
 
 const solverWorker = new Worker(new URL("./solver.worker.ts", import.meta.url), { type: "module" });
 
@@ -298,6 +321,8 @@ document.querySelectorAll<HTMLButtonElement>("[data-move]").forEach((button) => 
 });
 
 document.querySelector<HTMLButtonElement>("[data-scramble]")?.addEventListener("click", () => {
+  hideStepper();
+  resetVisualState();
   const length = Number(scrambleLengthInput.value);
   const scramble = createRandomScramble(length);
 
@@ -325,6 +350,7 @@ solveButton?.addEventListener("click", async () => {
   const solverId = solverSelect.value as SolverId;
   const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
 
+  hideStepper();
   solving = true;
   if (solveButton) solveButton.disabled = true;
   solverSelect.disabled = true;
@@ -338,16 +364,15 @@ solveButton?.addEventListener("click", async () => {
 
   if (result.status === "solved") {
     const { solution, stats } = result;
-    setInputStatus(`Solution found: ${formatAlgorithm(solution)}`);
     showStats(solverName, solution.length, stats.elapsedMs, stats.nodesExpanded);
-    completionStatus = "Solved.";
-    enqueueMoves(solution, FAST_TURN_DURATION_MS);
+    playSolution(solution);
   } else {
     setInputStatus("No solution found within node limit.");
   }
 });
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
+  hideStepper();
   resetVisualState();
   clearHashScramble();
   setInputStatus("Reset puzzle.");
@@ -445,7 +470,6 @@ function resetVisualState() {
   turnQueue.length = 0;
   moveHistory = [];
   engineState = createSolvedState();
-  completionStatus = undefined;
 
   puzzleFacets.forEach((facet) => {
     const initial = initialFacetTransforms.get(facet);
@@ -460,12 +484,20 @@ function resetVisualState() {
   });
 }
 
-function enqueueMoves(moves: readonly Move[], durationMs: number) {
+function enqueueMoves(
+  moves: readonly Move[],
+  durationMs: number,
+  onComplete?: (index: number) => void,
+) {
   if (moves.length === 0) {
     return;
   }
 
-  turnQueue.push(...moves.map((move) => ({ move, durationMs })));
+  turnQueue.push(...moves.map((move, index) => ({
+    move,
+    durationMs,
+    onComplete: onComplete ? () => onComplete(index) : undefined,
+  })));
 }
 
 function updateTurnAnimation(now: number) {
@@ -473,15 +505,10 @@ function updateTurnAnimation(now: number) {
     const next = turnQueue.shift();
 
     if (!next) {
-      if (completionStatus && moveHistory.length === 0) {
-        setInputStatus(completionStatus);
-        completionStatus = undefined;
-      }
-
       return;
     }
 
-    activeTurn = createTurnAnimation(next.move, next.durationMs, now);
+    activeTurn = createTurnAnimation(next.move, next.durationMs, now, next.onComplete);
   }
 
   const t = Math.min((now - activeTurn.startedAt) / activeTurn.durationMs, 1);
@@ -507,11 +534,17 @@ function updateTurnAnimation(now: number) {
     });
     engineState = applyMove(engineState, completedTurn.move);
     moveHistory = simplifyAlgorithm([...moveHistory, completedTurn.move]);
+    completedTurn.onComplete?.();
     activeTurn = undefined;
   }
 }
 
-function createTurnAnimation(move: Move, durationMs: number, now: number): TurnAnimation {
+function createTurnAnimation(
+  move: Move,
+  durationMs: number,
+  now: number,
+  onComplete?: () => void,
+): TurnAnimation {
   // Clockwise is viewed from outside the fixed corner looking toward the center.
   const rotation = new THREE.Quaternion().setFromAxisAngle(
     fixedAxes[move.axis],
@@ -534,6 +567,7 @@ function createTurnAnimation(move: Move, durationMs: number, now: number): TurnA
     startedAt: now,
     durationMs,
     move,
+    onComplete,
   };
 }
 
@@ -1043,6 +1077,87 @@ function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
+// ── Solution stepper ────────────────────────────────────────────────────────
+
+const solutionStepper = requireElement<HTMLElement>("#solution-stepper");
+const stepperSequence = requireElement<HTMLElement>("#stepper-sequence");
+const stepLabel = requireElement<HTMLElement>("#step-label");
+const stepBackBtn = requireElement<HTMLButtonElement>("#step-back");
+const stepFwdBtn = requireElement<HTMLButtonElement>("#step-forward");
+
+function showStepper(solution: readonly Move[]) {
+  stepSolution = solution;
+  stepIndex = 0;
+  stepperLocked = false;
+  stepperSequence.innerHTML = "";
+  solution.forEach((move, i) => {
+    const span = document.createElement("span");
+    span.className = "stepper-move";
+    span.dataset.step = String(i);
+    span.textContent = formatMove(move);
+    stepperSequence.appendChild(span);
+  });
+  updateStepperUI();
+  solutionStepper.removeAttribute("hidden");
+}
+
+function hideStepper() {
+  solutionStepper.setAttribute("hidden", "");
+  stepSolution = [];
+  stepIndex = 0;
+  stepperLocked = false;
+}
+
+function playSolution(solution: readonly Move[]) {
+  showStepper(solution);
+
+  if (solution.length === 0) {
+    setInputStatus("Already solved.");
+    return;
+  }
+
+  stepperLocked = true;
+  updateStepperUI();
+  setInputStatus(`Animating solution: ${formatAlgorithm(solution)}`);
+  enqueueMoves(solution, FAST_TURN_DURATION_MS, (index) => {
+    stepIndex = index + 1;
+    if (stepIndex >= stepSolution.length) {
+      stepperLocked = false;
+      setInputStatus("Solved. Use Back to rewind through the solution.");
+    }
+    updateStepperUI();
+  });
+}
+
+function updateStepperUI() {
+  const atStart = stepIndex === 0;
+  const atEnd = stepIndex >= stepSolution.length;
+  stepBackBtn.disabled = stepperLocked || atStart;
+  stepFwdBtn.disabled = stepperLocked || atEnd;
+  stepLabel.textContent = `${stepIndex} / ${stepSolution.length}`;
+  stepBackBtn.textContent = atStart ? "Back" : `Back ${formatMove(stepSolution[stepIndex - 1]!)}`;
+  stepFwdBtn.textContent = atEnd ? "Done" : `${formatMove(stepSolution[stepIndex]!)} Next`;
+  stepperSequence.querySelectorAll<HTMLElement>(".stepper-move").forEach((el, i) => {
+    el.className = "stepper-move" +
+      (i < stepIndex ? " stepper-move--done" :
+       i === stepIndex ? " stepper-move--next" : " stepper-move--pending");
+  });
+}
+
+stepBackBtn.addEventListener("click", () => {
+  if (stepperLocked || stepIndex === 0) return;
+  stepIndex--;
+  enqueueMoves([invertMove(stepSolution[stepIndex]!)], DEFAULT_TURN_DURATION_MS);
+  updateStepperUI();
+});
+
+stepFwdBtn.addEventListener("click", () => {
+  if (stepperLocked || stepIndex >= stepSolution.length) return;
+  enqueueMoves([stepSolution[stepIndex]!], DEFAULT_TURN_DURATION_MS);
+  stepIndex++;
+  updateStepperUI();
+});
+
 // ── Paint mode ──────────────────────────────────────────────────────────────
 
 const paintToggleBtn = requireElement<HTMLButtonElement>("#paint-toggle");
@@ -1051,7 +1166,10 @@ const paintPanel = requireElement<HTMLElement>("#paint-panel");
 const colorPalette = requireElement<HTMLElement>("#color-palette");
 const paintStatusEl = requireElement<HTMLElement>("#input-status-paint");
 const solvePaintedBtn = requireElement<HTMLButtonElement>("#solve-painted");
+const markSolvedBtn = requireElement<HTMLButtonElement>("#mark-solved");
 const clearPaintBtn = requireElement<HTMLButtonElement>("#clear-paint");
+const copyPaintStateBtn = requireElement<HTMLButtonElement>("#copy-paint-state");
+const importPaintStateBtn = requireElement<HTMLButtonElement>("#import-paint-state");
 
 faceColors.forEach((color, index) => {
   const swatch = document.createElement("button");
@@ -1079,9 +1197,60 @@ paintToggleBtn.addEventListener("click", () => {
   else enterPaintMode();
 });
 
+markSolvedBtn.addEventListener("click", () => {
+  for (const [key, mat] of stickerMaterials) {
+    const faceIndex = parseInt(key.split(":")[1]!);
+    const colorIndex = faceIndex % faceColors.length;
+    userStickerColors.set(key, colorIndex);
+    mat.color.set(faceColors[colorIndex]!);
+  }
+});
+
 clearPaintBtn.addEventListener("click", () => {
   userStickerColors.clear();
-  for (const [, mat] of stickerMaterials) mat.color.set(0xffffff);
+  for (const [, mat] of stickerMaterials) mat.color.set(0xe6e6e6);
+});
+
+copyPaintStateBtn.addEventListener("click", () => {
+  const payload = {
+    slotIds: SLOT_IDS,
+    stickerColors: Object.fromEntries(userStickerColors),
+    faceColors: faceColors.map((c) => `#${c.toString(16).padStart(6, "0")}`),
+  };
+  navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(() => {
+    paintStatusEl.textContent = "State copied to clipboard.";
+  });
+});
+
+importPaintStateBtn.addEventListener("click", async () => {
+  let json: string | null = null;
+  try {
+    json = await navigator.clipboard.readText();
+  } catch {
+    json = prompt("Paste your debug JSON:");
+  }
+  if (!json) return;
+  try {
+    const data = JSON.parse(json) as {
+      stickerColors?: Record<string, number>;
+      faceColors?: string[];
+    };
+    const colors = data.stickerColors;
+    if (!colors || typeof colors !== "object") throw new Error("bad format");
+    const importedColorMap = createImportedColorMap(data.faceColors);
+    userStickerColors.clear();
+    let count = 0;
+    for (const [key, colorIdx] of Object.entries(colors)) {
+      const idx = normalizePaintColor(importedColorMap[Number(colorIdx)] ?? Number(colorIdx));
+      userStickerColors.set(key, idx);
+      const mat = stickerMaterials.get(key);
+      if (mat) mat.color.set(faceColors[idx]!);
+      count++;
+    }
+    paintStatusEl.textContent = `Imported ${count} stickers.`;
+  } catch {
+    paintStatusEl.textContent = "Paste a valid debug JSON first.";
+  }
 });
 
 const paintRaycaster = new THREE.Raycaster();
@@ -1120,13 +1289,11 @@ renderer.domElement.addEventListener("pointerup", (event) => {
 solvePaintedBtn.addEventListener("click", async () => {
   if (solving) return;
   const reconstructed = reconstructStateFromColors();
-  if (!reconstructed) {
-    setInputStatus("Invalid coloring — colors don't match any valid state.");
-    return;
-  }
+  if (!reconstructed) return;
 
-  const solverId = solverSelect.value as SolverId;
-  const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
+  // Paint-mode solve uses Bidirectional IDA* — no node limit, handles any depth.
+  const solverId: SolverId = "bidirectional-ida-star";
+  const solverName = "Bidirectional IDA*";
 
   solving = true;
   solvePaintedBtn.disabled = true;
@@ -1142,7 +1309,7 @@ solvePaintedBtn.addEventListener("click", async () => {
   solverSelect.disabled = false;
 
   if (result.status !== "solved") {
-    setInputStatus("No solution found — check your color input.");
+    setInputStatus("No solution found — the color input may have an impossible state.");
     return;
   }
 
@@ -1150,13 +1317,12 @@ solvePaintedBtn.addEventListener("click", async () => {
   exitPaintMode();
   resetVisualState();
   fastApplyMoves(invertAlgorithm(solution));
-  setInputStatus(`Solution found: ${formatAlgorithm(solution)}`);
   showStats(solverName, solution.length, stats.elapsedMs, stats.nodesExpanded);
-  completionStatus = "Solved.";
-  enqueueMoves(solution, FAST_TURN_DURATION_MS);
+  playSolution(solution);
 });
 
 function enterPaintMode() {
+  hideStepper();
   resetVisualState();
   paintMode = true;
   userStickerColors.clear();
@@ -1166,6 +1332,9 @@ function enterPaintMode() {
     s.classList.toggle("palette-swatch--active", i === 0),
   );
   for (const [, mat] of stickerMaterials) mat.color.set(0xe6e6e6);
+  keyLight.intensity = 0;
+  fillLight.intensity = 0;
+  ambientLight.intensity = 3.5;
   paintToggleBtn.textContent = "← Exit";
   paintToggleBtn.dataset.active = "";
   normalPanel.setAttribute("hidden", "");
@@ -1178,6 +1347,9 @@ function exitPaintMode() {
     const faceIndex = parseInt(key.split(":")[1]!);
     mat.color.set(faceColors[faceIndex % faceColors.length]!);
   }
+  keyLight.intensity = 2.2;
+  fillLight.intensity = 1.0;
+  ambientLight.intensity = 1.2;
   paintToggleBtn.textContent = "My Cube";
   delete paintToggleBtn.dataset.active;
   normalPanel.removeAttribute("hidden");
@@ -1207,13 +1379,31 @@ function reconstructStateFromColors(): PuzzleState | null {
     const parts = key.split(":");
     const s = parseInt(parts[0]!);
     const f = parseInt(parts[1]!);
-    if (s >= 0 && s < numSlots) userColorsBySlot[s]!.set(f, colorIdx);
+    if (s >= 0 && s < numSlots) userColorsBySlot[s]!.set(f, normalizePaintColor(colorIdx));
   }
-  // Fill unassigned stickers with color 0 (white = default)
+
+  const colorCounts = new Array<number>(faceColors.length).fill(0);
+  const missing: string[] = [];
   for (let s = 0; s < numSlots; s++) {
     for (const [fIdx] of slotFaceNormals[s] ?? []) {
-      if (!userColorsBySlot[s]!.has(fIdx)) userColorsBySlot[s]!.set(fIdx, 0);
+      const color = userColorsBySlot[s]!.get(fIdx);
+      if (color === undefined) {
+        missing.push(`${SLOT_IDS[s]}:${fIdx}`);
+      } else {
+        colorCounts[color] = colorCounts[color]! + 1;
+      }
     }
+  }
+
+  if (missing.length > 0) {
+    setInputStatus(`Paint all stickers first — ${missing.length} missing.`);
+    return null;
+  }
+
+  const wrongCount = colorCounts.findIndex((count) => count !== 4);
+  if (wrongCount !== -1) {
+    setInputStatus(`Color ${wrongCount + 1} has ${colorCounts[wrongCount]} stickers; each color needs 4.`);
+    return null;
   }
 
   const resultPieces = new Array<number>(numSlots).fill(-1);
@@ -1257,10 +1447,50 @@ function reconstructStateFromColors(): PuzzleState | null {
       }
     }
 
-    if (!found) return null;
+    if (!found) {
+      setInputStatus(`Painting error at ${SLOT_IDS[s]} — check that piece for a wrong color.`);
+      return null;
+    }
   }
 
-  if (resultPieces.includes(-1)) return null;
+  if (resultPieces.includes(-1)) {
+    const missing = resultPieces.map((p, s) => (p === -1 ? SLOT_IDS[s] : null)).filter(Boolean);
+    console.error("Reconstruction failed silently for slots:", missing);
+    return null;
+  }
+
+  if (!isReachablePiecePermutation(resultPieces)) {
+    setInputStatus("Impossible piece placement — check face color locality or a mispainted sticker.");
+    return null;
+  }
+
   return { pieces: resultPieces, orientations: resultOrientations };
 }
 
+function createImportedColorMap(importedFaceColors: string[] | undefined) {
+  if (!Array.isArray(importedFaceColors)) return [];
+
+  const currentByHex = new Map(
+    faceColors.map((color, index) => [colorToHex(color), index]),
+  );
+
+  return importedFaceColors.map((color, fallbackIndex) =>
+    currentByHex.get(normalizeHexColor(color)) ?? fallbackIndex,
+  );
+}
+
+function normalizePaintColor(colorIndex: number) {
+  if (!Number.isFinite(colorIndex)) {
+    throw new Error("Invalid paint color index");
+  }
+
+  return ((Math.trunc(colorIndex) % faceColors.length) + faceColors.length) % faceColors.length;
+}
+
+function colorToHex(color: number) {
+  return `#${color.toString(16).padStart(6, "0")}`;
+}
+
+function normalizeHexColor(color: string) {
+  return color.trim().toLowerCase();
+}

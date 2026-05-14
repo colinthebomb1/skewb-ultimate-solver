@@ -161,6 +161,16 @@ export function isSolved(state: PuzzleState): boolean {
   );
 }
 
+let reachablePiecePermutationKeys: Set<string> | undefined;
+
+export function isReachablePiecePermutation(pieces: readonly PieceId[]): boolean {
+  if (!reachablePiecePermutationKeys) {
+    reachablePiecePermutationKeys = buildReachablePiecePermutationKeys();
+  }
+
+  return reachablePiecePermutationKeys.has(serializePieces(pieces));
+}
+
 export function formatMove(move: Move): string {
   return `${move.axis}${move.amount === -1 ? "'" : ""}`;
 }
@@ -250,6 +260,38 @@ function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
   }
 
   return { pieces: nextPieces, orientations: nextOrientations };
+}
+
+function buildReachablePiecePermutationKeys(): Set<string> {
+  const solved = createSolvedState();
+  const seen = new Set<string>([serializePieces(solved.pieces)]);
+  let frontier: PuzzleState[] = [solved];
+
+  while (frontier.length > 0) {
+    const next: PuzzleState[] = [];
+
+    for (const state of frontier) {
+      for (const axis of MOVE_AXES) {
+        for (const amount of [1, -1] as const) {
+          const moved = applyMove(state, { axis, amount });
+          const key = serializePieces(moved.pieces);
+
+          if (!seen.has(key)) {
+            seen.add(key);
+            next.push(moved);
+          }
+        }
+      }
+    }
+
+    frontier = next;
+  }
+
+  return seen;
+}
+
+function serializePieces(pieces: readonly PieceId[]): string {
+  return pieces.join(",");
 }
 
 function createSlotDefinitions(): SlotDefinition[] {

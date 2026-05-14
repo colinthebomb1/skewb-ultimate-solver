@@ -6,6 +6,7 @@ import {
   applyMove,
   createSolvedState,
   invertAlgorithm,
+  isReachablePiecePermutation,
   isSolved,
   parseAlgorithm,
 } from "../src";
@@ -69,5 +70,17 @@ describe("puzzle state", () => {
 
     expect(state.pieces).toEqual(SLOT_IDS.map((_, i) => i));
     expect(isSolved(state)).toBe(false);
+  });
+
+  it("identifies reachable piece permutations", () => {
+    const state = applyAlgorithm(createSolvedState(), parseAlgorithm("L R' D B R L' D' B"));
+
+    expect(isReachablePiecePermutation(state.pieces)).toBe(true);
+  });
+
+  it("rejects impossible piece permutations from painted color reconstruction", () => {
+    const impossiblePieces = [0, 7, 2, 1, 4, 11, 6, 3, 9, 8, 10, 5, 12, 13];
+
+    expect(isReachablePiecePermutation(impossiblePieces)).toBe(false);
   });
 });
