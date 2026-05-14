@@ -21,7 +21,7 @@ const solvers = {
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { solverId, state } = event.data;
-  const solver = solvers[solverId as keyof typeof solvers] ?? solvers["bidirectional-bfs"];
+  const solver = solvers[solverId as keyof typeof solvers] ?? solvers["bidirectional-ida-star"];
   const result = await solver.solve(state);
   self.postMessage(result);
 };

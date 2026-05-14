@@ -51,7 +51,8 @@ const SLOT_INDEX_BY_ID = new Map(SLOT_IDS.map((id, index) => [id, index]));
 
 type MoveCycle = { sourceIndex: number; targetIndex: number };
 type MoveTransform = {
-  cycles: readonly MoveCycle[];
+  sourceIndexes: readonly number[];
+  targetIndexes: readonly number[];
   orientationTransition: readonly number[];
 };
 
@@ -157,11 +158,14 @@ export function invertAlgorithm(moves: readonly Move[]): Move[] {
 export function applyMove(state: PuzzleState, move: Move): PuzzleState {
   const nextPieces = [...state.pieces];
   const nextOrientations = [...state.orientations];
-  const transform = MOVE_TRANSFORMS[move.axis][move.amount];
+  const { sourceIndexes, targetIndexes, orientationTransition } =
+    MOVE_TRANSFORMS[move.axis][move.amount];
 
-  for (const { sourceIndex, targetIndex } of transform.cycles) {
+  for (let i = 0; i < sourceIndexes.length; i += 1) {
+    const sourceIndex = sourceIndexes[i]!;
+    const targetIndex = targetIndexes[i]!;
     nextPieces[targetIndex] = state.pieces[sourceIndex]!;
-    nextOrientations[targetIndex] = transform.orientationTransition[state.orientations[sourceIndex]!]!;
+    nextOrientations[targetIndex] = orientationTransition[state.orientations[sourceIndex]!]!;
   }
 
   return { pieces: nextPieces, orientations: nextOrientations };
@@ -307,15 +311,22 @@ function createMoveTransform(axis: MoveAxis, amount: MoveAmount): MoveTransform 
   const sourceToTarget = amount === 1
     ? clockwiseSourceToTarget
     : clockwiseSourceToTarget.map((target) => clockwiseSourceToTarget[target]!);
-  const cycles = sourceToTarget
-    .map((targetIndex, sourceIndex) => ({ sourceIndex, targetIndex }))
-    .filter(({ sourceIndex, targetIndex }) => sourceIndex !== targetIndex);
+  const sourceIndexes: number[] = [];
+  const targetIndexes: number[] = [];
+
+  sourceToTarget.forEach((targetIndex, sourceIndex) => {
+    if (sourceIndex !== targetIndex) {
+      sourceIndexes.push(sourceIndex);
+      targetIndexes.push(targetIndex);
+    }
+  });
+
   const clockwiseTransition = ORIENTATION_TRANSITION[axis];
   const orientationTransition = amount === 1
     ? clockwiseTransition
     : clockwiseTransition.map((next) => clockwiseTransition[next]!);
 
-  return { cycles, orientationTransition };
+  return { sourceIndexes, targetIndexes, orientationTransition };
 }
 
 function createSlotDefinitions(): SlotDefinition[] {
