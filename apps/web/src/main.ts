@@ -74,6 +74,7 @@ const faceColors = [
   0x1040a8, // face 10: deep ocean blue
   0x006e40, // face 11: dark green
 ];
+const DEFAULT_PAINT_COLOR_INDEX = 4; // white
 
 // stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
 const stickerMaterials = new Map<string, THREE.MeshStandardMaterial>();
@@ -198,6 +199,13 @@ app.innerHTML = `
         </header>
         <p class="paint-hint">Pick a color, then click any sticker on the puzzle to paint it. Drag to rotate.</p>
         <div class="palette" id="color-palette" aria-label="Color palette" role="group"></div>
+        <div class="paint-readiness" id="paint-readiness">
+          <div class="paint-meter" aria-hidden="true"><span id="paint-progress-bar"></span></div>
+          <div class="paint-readiness-line">
+            <span id="paint-color-counts">0 / 12 colors complete</span>
+          </div>
+          <div id="paint-color-status" class="paint-color-status">Selected color: 0 / 4 stickers</div>
+        </div>
         <div class="paint-actions" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
           <button type="button" id="solve-painted">Solve This</button>
           <button type="button" id="mark-solved">Mark Solved</button>
@@ -1175,6 +1183,9 @@ const normalPanel = requireElement<HTMLElement>("#normal-panel");
 const paintPanel = requireElement<HTMLElement>("#paint-panel");
 const colorPalette = requireElement<HTMLElement>("#color-palette");
 const paintStatusEl = requireElement<HTMLElement>("#input-status-paint");
+const paintColorCountsEl = requireElement<HTMLElement>("#paint-color-counts");
+const paintProgressBar = requireElement<HTMLElement>("#paint-progress-bar");
+const paintColorStatusEl = requireElement<HTMLElement>("#paint-color-status");
 const solvePaintedBtn = requireElement<HTMLButtonElement>("#solve-painted");
 const markSolvedBtn = requireElement<HTMLButtonElement>("#mark-solved");
 const clearPaintBtn = requireElement<HTMLButtonElement>("#clear-paint");
@@ -1200,6 +1211,7 @@ colorPalette.addEventListener("click", (event) => {
     s.classList.remove("palette-swatch--active"),
   );
   swatch.classList.add("palette-swatch--active");
+  updatePaintReadiness();
 });
 
 paintToggleBtn.addEventListener("click", () => {
@@ -1211,14 +1223,16 @@ markSolvedBtn.addEventListener("click", () => {
   for (const [key, mat] of stickerMaterials) {
     const faceIndex = parseInt(key.split(":")[1]!);
     const colorIndex = faceIndex % faceColors.length;
-    userStickerColors.set(key, colorIndex);
+    setPaintStickerColor(key, colorIndex);
     mat.color.set(faceColors[colorIndex]!);
   }
+  updatePaintReadiness();
 });
 
 clearPaintBtn.addEventListener("click", () => {
   userStickerColors.clear();
-  for (const [, mat] of stickerMaterials) mat.color.set(0xe6e6e6);
+  for (const [, mat] of stickerMaterials) mat.color.set(faceColors[DEFAULT_PAINT_COLOR_INDEX]!);
+  updatePaintReadiness();
 });
 
 copyPaintStateBtn.addEventListener("click", () => {
@@ -1252,11 +1266,12 @@ importPaintStateBtn.addEventListener("click", async () => {
     let count = 0;
     for (const [key, colorIdx] of Object.entries(colors)) {
       const idx = normalizePaintColor(importedColorMap[Number(colorIdx)] ?? Number(colorIdx));
-      userStickerColors.set(key, idx);
+      setPaintStickerColor(key, idx);
       const mat = stickerMaterials.get(key);
       if (mat) mat.color.set(faceColors[idx]!);
       count++;
     }
+    updatePaintReadiness();
     paintStatusEl.textContent = `Imported ${count} stickers.`;
   } catch {
     paintStatusEl.textContent = "Paste a valid debug JSON first.";
@@ -1290,14 +1305,15 @@ renderer.domElement.addEventListener("pointerup", (event) => {
   for (const hit of hits) {
     const key = (hit.object as THREE.Mesh).userData.stickerKey as string | undefined;
     if (!key || key.startsWith("-1:")) continue;
-    userStickerColors.set(key, paintColorIndex);
+    setPaintStickerColor(key, paintColorIndex);
     stickerMaterials.get(key)?.color.set(faceColors[paintColorIndex]!);
+    updatePaintReadiness();
     break;
   }
 });
 
 solvePaintedBtn.addEventListener("click", async () => {
-  if (solving) return;
+  if (solving || !getPaintReadiness().ready) return;
   const reconstructed = reconstructStateFromColors();
   if (!reconstructed) return;
 
@@ -1341,7 +1357,7 @@ function enterPaintMode() {
   colorPalette.querySelectorAll(".palette-swatch").forEach((s, i) =>
     s.classList.toggle("palette-swatch--active", i === 0),
   );
-  for (const [, mat] of stickerMaterials) mat.color.set(0xe6e6e6);
+  for (const [, mat] of stickerMaterials) mat.color.set(faceColors[DEFAULT_PAINT_COLOR_INDEX]!);
   keyLight.intensity = 0;
   fillLight.intensity = 0;
   ambientLight.intensity = 3.5;
@@ -1349,6 +1365,7 @@ function enterPaintMode() {
   paintToggleBtn.dataset.active = "";
   normalPanel.setAttribute("hidden", "");
   paintPanel.removeAttribute("hidden");
+  updatePaintReadiness();
 }
 
 function exitPaintMode() {
@@ -1381,33 +1398,63 @@ function fastApplyMoves(moves: readonly Move[]) {
   }
 }
 
+function getPaintReadiness() {
+  const colorCounts = new Array<number>(faceColors.length).fill(0);
+
+  for (let slot = 0; slot < SLOT_IDS.length; slot += 1) {
+    for (const [face] of slotFaceNormals[slot] ?? []) {
+      const color = getEffectivePaintColor(slot, face);
+      colorCounts[color] = colorCounts[color]! + 1;
+    }
+  }
+
+  return {
+    colorCounts,
+    completeColors: colorCounts.filter((count) => count === 4).length,
+    ready: colorCounts.every((count) => count === 4),
+  };
+}
+
+function updatePaintReadiness() {
+  const readiness = getPaintReadiness();
+  const progress = readiness.completeColors / faceColors.length;
+  const selectedColorCount = readiness.colorCounts[paintColorIndex] ?? 0;
+
+  paintColorCountsEl.textContent = `${readiness.completeColors} / ${faceColors.length} colors complete`;
+  paintProgressBar.style.width = `${Math.round(progress * 100)}%`;
+  solvePaintedBtn.disabled = solving || !readiness.ready;
+  solvePaintedBtn.title = readiness.ready ? "" : "Each color must appear exactly 4 times.";
+  paintColorStatusEl.textContent = `Selected color: ${selectedColorCount} / 4 stickers`;
+  paintColorStatusEl.dataset.state =
+    selectedColorCount === 4 ? "complete" : selectedColorCount > 4 ? "invalid" : "incomplete";
+}
+
+function getEffectivePaintColor(slot: number, face: number) {
+  return normalizePaintColor(userStickerColors.get(`${slot}:${face}`) ?? DEFAULT_PAINT_COLOR_INDEX);
+}
+
+function setPaintStickerColor(key: string, colorIndex: number) {
+  const normalized = normalizePaintColor(colorIndex);
+
+  if (normalized === DEFAULT_PAINT_COLOR_INDEX) {
+    userStickerColors.delete(key);
+  } else {
+    userStickerColors.set(key, normalized);
+  }
+}
+
 function reconstructStateFromColors(): PuzzleState | null {
   const numSlots = SLOT_IDS.length;
 
   const userColorsBySlot: Map<number, number>[] = Array.from({ length: numSlots }, () => new Map());
-  for (const [key, colorIdx] of userStickerColors) {
-    const parts = key.split(":");
-    const s = parseInt(parts[0]!);
-    const f = parseInt(parts[1]!);
-    if (s >= 0 && s < numSlots) userColorsBySlot[s]!.set(f, normalizePaintColor(colorIdx));
-  }
 
   const colorCounts = new Array<number>(faceColors.length).fill(0);
-  const missing: string[] = [];
   for (let s = 0; s < numSlots; s++) {
     for (const [fIdx] of slotFaceNormals[s] ?? []) {
-      const color = userColorsBySlot[s]!.get(fIdx);
-      if (color === undefined) {
-        missing.push(`${SLOT_IDS[s]}:${fIdx}`);
-      } else {
-        colorCounts[color] = colorCounts[color]! + 1;
-      }
+      const color = getEffectivePaintColor(s, fIdx);
+      userColorsBySlot[s]!.set(fIdx, color);
+      colorCounts[color] = colorCounts[color]! + 1;
     }
-  }
-
-  if (missing.length > 0) {
-    setInputStatus(`Paint all stickers first — ${missing.length} missing.`);
-    return null;
   }
 
   const wrongCount = colorCounts.findIndex((count) => count !== 4);

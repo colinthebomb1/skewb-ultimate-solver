@@ -409,6 +409,66 @@ h1 {
   transform: scale(1.15);
 }
 
+.paint-readiness {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #d9dee5;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.paint-meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5eaf0;
+}
+
+#paint-progress-bar {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+  transition: width 140ms ease;
+}
+
+.paint-readiness-line {
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.paint-color-status {
+  min-height: 32px;
+  padding: 8px 10px;
+  border: 1px solid #d9dee5;
+  border-radius: 6px;
+  color: #4b5563;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.paint-color-status[data-state="incomplete"] {
+  border-color: #d97706;
+  color: #92400e;
+  background: #fff7ed;
+}
+
+.paint-color-status[data-state="complete"] {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #ecfdf5;
+}
+
+.paint-color-status[data-state="invalid"] {
+  border-color: #dc2626;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
 .paint-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
