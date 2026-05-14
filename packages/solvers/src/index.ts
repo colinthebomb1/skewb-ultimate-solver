@@ -182,37 +182,40 @@ export function bidirectionalBfsSolver(): Solver {
         for (const nodeIndex of frontier) {
           const { state, lastAxis } = nodes[nodeIndex]!;
 
-          for (const axis of MOVE_AXES) {
-            if (axis === lastAxis) continue;
+          for (const move of SEARCH_MOVES) {
+            if (move.axis === lastAxis) continue;
 
-            for (const amount of SEARCH_AMOUNTS) {
-              if (stats.nodesExpanded >= maxNodes) {
-                frontier.length = 0;
-                return undefined;
-              }
-
-              const move = { axis, amount };
-              const nextState = applyMove(state, move);
-              const nextKey = serializeState(nextState);
-
-              if (visited.has(nextKey)) continue;
-
-              const nextIndex = nodes.length;
-              nodes.push({ state: nextState, key: nextKey, lastAxis: axis, parent: nodeIndex, move });
-              visited.set(nextKey, nextIndex);
-              stats.nodesExpanded++;
-
-              const otherIndex = other.get(nextKey);
-              if (otherIndex !== undefined) {
-                const ownPath = pathToBfsNode(nodes, nextIndex);
-                const otherPath = pathToBfsNode(otherNodes, otherIndex);
-                const fwdPath = forward ? ownPath : otherPath;
-                const bwdPath = forward ? otherPath : ownPath;
-                return simplifyAlgorithm([...fwdPath, ...invertAlgorithm(bwdPath)]);
-              }
-
-              next.push(nextIndex);
+            if (stats.nodesExpanded >= maxNodes) {
+              frontier.length = 0;
+              return undefined;
             }
+
+            const nextState = applyMove(state, move);
+            const nextKey = serializeState(nextState);
+
+            if (visited.has(nextKey)) continue;
+
+            const nextIndex = nodes.length;
+            nodes.push({
+              state: nextState,
+              key: nextKey,
+              lastAxis: move.axis,
+              parent: nodeIndex,
+              move,
+            });
+            visited.set(nextKey, nextIndex);
+            stats.nodesExpanded++;
+
+            const otherIndex = other.get(nextKey);
+            if (otherIndex !== undefined) {
+              const ownPath = pathToBfsNode(nodes, nextIndex);
+              const otherPath = pathToBfsNode(otherNodes, otherIndex);
+              const fwdPath = forward ? ownPath : otherPath;
+              const bwdPath = forward ? otherPath : ownPath;
+              return simplifyAlgorithm([...fwdPath, ...invertAlgorithm(bwdPath)]);
+            }
+
+            next.push(nextIndex);
           }
         }
 
@@ -255,6 +258,9 @@ type SearchContext = {
 };
 
 const SEARCH_AMOUNTS = [1, -1] as const;
+const SEARCH_MOVES: readonly Move[] = MOVE_AXES.flatMap((axis) =>
+  SEARCH_AMOUNTS.map((amount) => ({ axis, amount })),
+);
 
 function search(context: SearchContext): Move[] | undefined {
   if (context.stats.nodesExpanded >= context.maxNodes) {
@@ -283,25 +289,22 @@ function search(context: SearchContext): Move[] | undefined {
 
   context.visitedDepth.set(stateKey, context.depthRemaining);
 
-  for (const axis of MOVE_AXES) {
-    if (axis === context.previousAxis) {
+  for (const move of SEARCH_MOVES) {
+    if (move.axis === context.previousAxis) {
       continue;
     }
 
-    for (const amount of SEARCH_AMOUNTS) {
-      const move = { axis, amount };
-      const nextState = applyMove(context.state, move);
-      const solution = search({
-        ...context,
-        state: nextState,
-        depthRemaining: context.depthRemaining - 1,
-        path: [...context.path, move],
-        previousAxis: axis,
-      });
+    const nextState = applyMove(context.state, move);
+    const solution = search({
+      ...context,
+      state: nextState,
+      depthRemaining: context.depthRemaining - 1,
+      path: [...context.path, move],
+      previousAxis: move.axis,
+    });
 
-      if (solution) {
-        return solution;
-      }
+    if (solution) {
+      return solution;
     }
   }
 
@@ -432,17 +435,15 @@ function buildBidaFrontier(
 
   if (g >= maxFwdDepth) return undefined;
 
-  for (const axis of MOVE_AXES) {
-    if (axis === prevAxis) continue;
-    for (const amount of SEARCH_AMOUNTS) {
-      const move = { axis, amount };
-      path.push(move);
-      const result = buildBidaFrontier(
-        applyMove(state, move), g + 1, bound, maxFwdDepth, path, axis, frontier, stats,
-      );
-      path.pop();
-      if (result) return result;
-    }
+  for (const move of SEARCH_MOVES) {
+    if (move.axis === prevAxis) continue;
+
+    path.push(move);
+    const result = buildBidaFrontier(
+      applyMove(state, move), g + 1, bound, maxFwdDepth, path, move.axis, frontier, stats,
+    );
+    path.pop();
+    if (result) return result;
   }
   return undefined;
 }
@@ -467,17 +468,15 @@ function bidaBwdSearch(
 
   if (g >= maxBwdDepth) return undefined;
 
-  for (const axis of MOVE_AXES) {
-    if (axis === prevAxis) continue;
-    for (const amount of SEARCH_AMOUNTS) {
-      const move = { axis, amount };
-      path.push(move);
-      const result = bidaBwdSearch(
-        applyMove(state, move), g + 1, maxBwdDepth, bound, path, axis, frontier, stats,
-      );
-      path.pop();
-      if (result) return result;
-    }
+  for (const move of SEARCH_MOVES) {
+    if (move.axis === prevAxis) continue;
+
+    path.push(move);
+    const result = bidaBwdSearch(
+      applyMove(state, move), g + 1, maxBwdDepth, bound, path, move.axis, frontier, stats,
+    );
+    path.pop();
+    if (result) return result;
   }
   return undefined;
 }
@@ -506,21 +505,19 @@ function idaSearch(
 
   let minF = Infinity;
 
-  for (const axis of MOVE_AXES) {
-    if (axis === previousAxis) continue;
+  for (const move of SEARCH_MOVES) {
+    if (move.axis === previousAxis) continue;
 
-    for (const amount of SEARCH_AMOUNTS) {
-      if (stats.nodesExpanded >= maxNodes) return minF;
+    if (stats.nodesExpanded >= maxNodes) return minF;
 
-      stats.nodesExpanded++;
-      const nextState = applyMove(state, { axis, amount });
-      path.push({ axis, amount });
-      const result = idaSearch(nextState, g + 1, threshold, path, axis, stats, maxNodes);
-      path.pop();
+    stats.nodesExpanded++;
+    const nextState = applyMove(state, move);
+    path.push(move);
+    const result = idaSearch(nextState, g + 1, threshold, path, move.axis, stats, maxNodes);
+    path.pop();
 
-      if (Array.isArray(result)) return result;
-      if (result < minF) minF = result;
-    }
+    if (Array.isArray(result)) return result;
+    if (result < minF) minF = result;
   }
 
   return minF;
