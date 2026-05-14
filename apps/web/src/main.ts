@@ -94,88 +94,92 @@ if (!app) {
 
 app.innerHTML = `
   <main class="shell">
-    <section class="viewport" aria-label="Skewb Ultimate preview"></section>
+    <section class="viewport" aria-label="Skewb Ultimate preview">
+      <button type="button" id="paint-toggle" class="viewport-overlay-btn">My Cube</button>
+    </section>
     <aside class="panel">
-      <header class="solver-header">
-        <p class="eyebrow">Solver</p>
-        <h1>Skewb Ultimate Solver</h1>
-      </header>
-      <div class="action-row primary-actions">
-        <button type="button" data-scramble>Scramble</button>
-        <button type="button" data-clear>Reset</button>
+      <div id="normal-panel">
+        <header class="solver-header">
+          <p class="eyebrow">Solver</p>
+          <h1>Skewb Ultimate Solver</h1>
+        </header>
+        <div class="action-row primary-actions">
+          <button type="button" data-scramble>Scramble</button>
+          <button type="button" data-clear>Reset</button>
+        </div>
+        <div class="solver-row">
+          <select id="solver-select" aria-label="Solver algorithm">
+            <option value="bidirectional-bfs">Bidirectional BFS</option>
+            <option value="bidirectional-ida-star">Bidirectional IDA*</option>
+            <option value="ida-star">IDA*</option>
+            <option value="depth-limited-dfs">Depth-Limited DFS</option>
+          </select>
+          <button type="button" data-solve>Solve</button>
+        </div>
+        <dl class="solve-stats" hidden>
+          <div class="stat-row">
+            <dt>Algorithm</dt><dd id="stat-algorithm">—</dd>
+          </div>
+          <div class="stat-row">
+            <dt>Solution</dt><dd id="stat-solution">—</dd>
+          </div>
+          <div class="stat-row">
+            <dt>Time</dt><dd id="stat-time">—</dd>
+          </div>
+          <div class="stat-row">
+            <dt>Nodes</dt><dd id="stat-nodes">—</dd>
+          </div>
+        </dl>
+        <div class="scramble-length-row">
+          <label for="scramble-length">Length</label>
+          <input type="range" id="scramble-length" min="1" max="25" value="12" />
+          <span id="scramble-length-value">12 moves</span>
+        </div>
+        <section class="tool-section" aria-labelledby="moves-title">
+          <div class="section-heading">
+            <h2 id="moves-title">Moves</h2>
+          </div>
+          <div class="controls" aria-label="Move controls">
+            <div class="move-pair">
+              <button type="button" data-move="L">L</button>
+              <button type="button" data-move="L'">L'</button>
+            </div>
+            <div class="move-pair">
+              <button type="button" data-move="R">R</button>
+              <button type="button" data-move="R'">R'</button>
+            </div>
+            <div class="move-pair">
+              <button type="button" data-move="D">D</button>
+              <button type="button" data-move="D'">D'</button>
+            </div>
+            <div class="move-pair">
+              <button type="button" data-move="B">B</button>
+              <button type="button" data-move="B'">B'</button>
+            </div>
+          </div>
+        </section>
+        <form class="algorithm-form" aria-label="Move sequence input">
+          <label for="algorithm-input">Move sequence</label>
+          <div class="algorithm-entry">
+            <input id="algorithm-input" name="algorithm" value="L R' D B" autocomplete="off" spellcheck="false" />
+            <button type="submit">Play</button>
+          </div>
+          <p id="input-status" class="input-status">Ready</p>
+        </form>
       </div>
-      <div class="solver-row">
-        <select id="solver-select" aria-label="Solver algorithm">
-          <option value="bidirectional-bfs">Bidirectional BFS</option>
-          <option value="bidirectional-ida-star">Bidirectional IDA*</option>
-          <option value="ida-star">IDA*</option>
-          <option value="depth-limited-dfs">Depth-Limited DFS</option>
-        </select>
-        <button type="button" data-solve>Solve</button>
+      <div id="paint-panel" hidden>
+        <header class="solver-header">
+          <p class="eyebrow">My Cube</p>
+          <h1>Enter Colors</h1>
+        </header>
+        <p class="paint-hint">Pick a color, then click any sticker on the puzzle to paint it. Drag to rotate.</p>
+        <div class="palette" id="color-palette" aria-label="Color palette" role="group"></div>
+        <div class="paint-actions">
+          <button type="button" id="solve-painted">Solve This</button>
+          <button type="button" id="clear-paint">Clear</button>
+        </div>
+        <p id="input-status-paint" class="input-status"></p>
       </div>
-      <dl class="solve-stats" hidden>
-        <div class="stat-row">
-          <dt>Algorithm</dt><dd id="stat-algorithm">—</dd>
-        </div>
-        <div class="stat-row">
-          <dt>Solution</dt><dd id="stat-solution">—</dd>
-        </div>
-        <div class="stat-row">
-          <dt>Time</dt><dd id="stat-time">—</dd>
-        </div>
-        <div class="stat-row">
-          <dt>Nodes</dt><dd id="stat-nodes">—</dd>
-        </div>
-      </dl>
-      <div class="scramble-length-row">
-        <label for="scramble-length">Length</label>
-        <input type="range" id="scramble-length" min="1" max="25" value="12" />
-        <span id="scramble-length-value">12 moves</span>
-      </div>
-      <section class="tool-section" aria-labelledby="moves-title">
-        <div class="section-heading">
-          <h2 id="moves-title">Moves</h2>
-        </div>
-        <div class="controls" aria-label="Move controls">
-          <div class="move-pair">
-            <button type="button" data-move="L">L</button>
-            <button type="button" data-move="L'">L'</button>
-          </div>
-          <div class="move-pair">
-            <button type="button" data-move="R">R</button>
-            <button type="button" data-move="R'">R'</button>
-          </div>
-          <div class="move-pair">
-            <button type="button" data-move="D">D</button>
-            <button type="button" data-move="D'">D'</button>
-          </div>
-          <div class="move-pair">
-            <button type="button" data-move="B">B</button>
-            <button type="button" data-move="B'">B'</button>
-          </div>
-        </div>
-      </section>
-      <form class="algorithm-form" aria-label="Move sequence input">
-        <label for="algorithm-input">Move sequence</label>
-        <div class="algorithm-entry">
-          <input id="algorithm-input" name="algorithm" value="L R' D B" autocomplete="off" spellcheck="false" />
-          <button type="submit">Play</button>
-        </div>
-        <p id="input-status" class="input-status">Ready</p>
-      </form>
-      <section class="tool-section" aria-labelledby="my-cube-title">
-        <div class="section-heading">
-          <h2 id="my-cube-title">My Cube</h2>
-        </div>
-        <button type="button" id="paint-toggle" class="paint-toggle-btn">Paint Mode</button>
-        <div id="paint-controls" hidden>
-          <div class="palette" id="color-palette" aria-label="Color palette" role="group"></div>
-          <div class="paint-actions">
-            <button type="button" id="solve-painted">Solve This</button>
-            <button type="button" id="clear-paint">Clear</button>
-          </div>
-        </div>
-      </section>
     </aside>
   </main>
 `;
@@ -391,7 +395,7 @@ function requireElement<T extends Element>(selector: string): T {
 }
 
 function setInputStatus(message: string) {
-  inputStatus.textContent = message;
+  (paintMode ? paintStatusEl : inputStatus).textContent = message;
 }
 
 function setHashScramble(scramble: readonly Move[]) {
@@ -1030,8 +1034,10 @@ function easeInOutCubic(t: number) {
 // ── Paint mode ──────────────────────────────────────────────────────────────
 
 const paintToggleBtn = requireElement<HTMLButtonElement>("#paint-toggle");
-const paintControls = requireElement<HTMLElement>("#paint-controls");
+const normalPanel = requireElement<HTMLElement>("#normal-panel");
+const paintPanel = requireElement<HTMLElement>("#paint-panel");
 const colorPalette = requireElement<HTMLElement>("#color-palette");
+const paintStatusEl = requireElement<HTMLElement>("#input-status-paint");
 const solvePaintedBtn = requireElement<HTMLButtonElement>("#solve-painted");
 const clearPaintBtn = requireElement<HTMLButtonElement>("#clear-paint");
 
@@ -1143,16 +1149,15 @@ function enterPaintMode() {
   paintMode = true;
   userStickerColors.clear();
   paintColorIndex = 0;
+  paintStatusEl.textContent = "";
   colorPalette.querySelectorAll(".palette-swatch").forEach((s, i) =>
     s.classList.toggle("palette-swatch--active", i === 0),
   );
   for (const [, mat] of stickerMaterials) mat.color.set(0xffffff);
-  paintToggleBtn.textContent = "Exit Paint Mode";
-  paintToggleBtn.classList.add("paint-toggle-btn--active");
-  paintControls.removeAttribute("hidden");
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-move], [data-scramble], [data-clear], [data-solve]")
-    .forEach((btn) => { btn.disabled = true; });
+  paintToggleBtn.textContent = "← Exit";
+  paintToggleBtn.dataset.active = "";
+  normalPanel.setAttribute("hidden", "");
+  paintPanel.removeAttribute("hidden");
 }
 
 function exitPaintMode() {
@@ -1161,12 +1166,10 @@ function exitPaintMode() {
     const faceIndex = parseInt(key.split(":")[1]!);
     mat.color.set(faceColors[faceIndex % faceColors.length]!);
   }
-  paintToggleBtn.textContent = "Paint Mode";
-  paintToggleBtn.classList.remove("paint-toggle-btn--active");
-  paintControls.setAttribute("hidden", "");
-  document
-    .querySelectorAll<HTMLButtonElement>("[data-move], [data-scramble], [data-clear], [data-solve]")
-    .forEach((btn) => { btn.disabled = false; });
+  paintToggleBtn.textContent = "My Cube";
+  delete paintToggleBtn.dataset.active;
+  normalPanel.removeAttribute("hidden");
+  paintPanel.setAttribute("hidden", "");
 }
 
 function fastApplyMoves(moves: readonly Move[]) {

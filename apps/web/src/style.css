@@ -331,34 +331,42 @@ h1 {
 }
 
 
-.paint-toggle-btn {
-  width: 100%;
-  min-height: 44px;
-  border: 1px solid #cfd6df;
+.viewport-overlay-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 10;
+  padding: 7px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 8px;
-  color: #111827;
-  background: #f8fafc;
+  background: rgba(8, 12, 18, 0.52);
+  backdrop-filter: blur(6px);
+  color: rgba(255, 255, 255, 0.88);
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 13px;
   cursor: pointer;
   transition:
     background 140ms ease,
     border-color 140ms ease;
 }
 
-.paint-toggle-btn:hover {
-  border-color: #748196;
-  background: #eef2f7;
+.viewport-overlay-btn:hover {
+  background: rgba(8, 12, 18, 0.72);
+  border-color: rgba(255, 255, 255, 0.38);
 }
 
-.paint-toggle-btn--active {
-  border-color: #b45309 !important;
-  color: #ffffff !important;
-  background: #d97706 !important;
+.viewport-overlay-btn[data-active] {
+  background: rgba(8, 12, 18, 0.76);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #ffffff;
 }
 
-.paint-toggle-btn--active:hover {
-  background: #b45309 !important;
+.paint-hint {
+  margin: 0;
+  color: #6b7280;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .palette {
