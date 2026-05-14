@@ -6,11 +6,14 @@ import {
   createSolvedState,
   formatAlgorithm,
   formatMove,
+  invertAlgorithm,
   isSolved,
+  orientationQuaternion,
   parseAlgorithm,
   parseMove,
   simplifyAlgorithm,
   MOVE_AXES,
+  SLOT_IDS,
   type Move,
   type MoveAxis,
   type PuzzleState,
@@ -55,6 +58,15 @@ const faceColors = [
   0xffffff, 0xf4d03f, 0xd9342b, 0x2274a5, 0x2fb344, 0xf28c28,
   0x8e44ad, 0x2dd4bf, 0x1f2937, 0xf472b6, 0x9ca3af, 0x8b5e34,
 ];
+
+// stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
+const stickerMaterials = new Map<string, THREE.MeshStandardMaterial>();
+// slotFaceNormals[slotIndex] maps dodecahedron faceIndex → outward normal
+const slotFaceNormals: (Map<number, THREE.Vector3> | undefined)[] = [];
+
+let paintMode = false;
+let paintColorIndex = 0;
+const userStickerColors = new Map<string, number>(); // stickerKey → color index
 
 // The vectors are dodecahedron vertices. These represent the four turn axes.
 const fixedAxes: Record<AxisId, THREE.Vector3> = {
@@ -151,6 +163,19 @@ app.innerHTML = `
         </div>
         <p id="input-status" class="input-status">Ready</p>
       </form>
+      <section class="tool-section" aria-labelledby="my-cube-title">
+        <div class="section-heading">
+          <h2 id="my-cube-title">My Cube</h2>
+        </div>
+        <button type="button" id="paint-toggle" class="paint-toggle-btn">Paint Mode</button>
+        <div id="paint-controls" hidden>
+          <div class="palette" id="color-palette" aria-label="Color palette" role="group"></div>
+          <div class="paint-actions">
+            <button type="button" id="solve-painted">Solve This</button>
+            <button type="button" id="clear-paint">Clear</button>
+          </div>
+        </div>
+      </section>
     </aside>
   </main>
 `;
@@ -536,14 +561,25 @@ function createCoreFragments(): PieceFragment[] {
 
 function createStickerFragments(): PieceFragment[] {
   return createDodecahedronFaces(1.7).flatMap(({ normal, ordered }, faceIndex) => {
+    const faceNormal = normal.clone();
     const color = new THREE.Color(faceColors[faceIndex % faceColors.length]);
 
     return splitFaceByCutPlanes(ordered).map((pieceVertices) => {
       const pieceCenter = centerLocal(pieceVertices);
+      const key = pieceKey(pieceCenter);
+      const slotId = key.replace(/\|/g, "");
+      const slotIndex = SLOT_IDS.indexOf(slotId);
+
+      if (slotIndex !== -1) {
+        if (!slotFaceNormals[slotIndex]) slotFaceNormals[slotIndex] = new Map();
+        slotFaceNormals[slotIndex]!.set(faceIndex, faceNormal);
+      }
+
+      const stickerKey = `${slotIndex}:${faceIndex}`;
 
       return {
-        key: pieceKey(pieceCenter),
-        object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color),
+        key,
+        object: createCutPieceGroup(pieceVertices, pieceCenter, normal, color, stickerKey),
         center: pieceCenter,
       };
     });
@@ -692,6 +728,7 @@ function createCutPieceGroup(
   center: THREE.Vector3,
   normal: THREE.Vector3,
   color: THREE.Color,
+  stickerKey: string,
 ) {
   const group = new THREE.Group();
   const localVertices = vertices.map((vertex) => vertex.clone().sub(center));
@@ -712,7 +749,11 @@ function createCutPieceGroup(
     flatShading: true,
   });
   const sticker = createStickerSolid(roundedStickerVertices, normal, stickerMaterial);
+  sticker.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) obj.userData.stickerKey = stickerKey;
+  });
 
+  stickerMaterials.set(stickerKey, stickerMaterial);
   group.add(sticker);
 
   return group;
@@ -984,5 +1025,227 @@ function normalKey(normal: THREE.Vector3) {
 
 function easeInOutCubic(t: number) {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// ── Paint mode ──────────────────────────────────────────────────────────────
+
+const paintToggleBtn = requireElement<HTMLButtonElement>("#paint-toggle");
+const paintControls = requireElement<HTMLElement>("#paint-controls");
+const colorPalette = requireElement<HTMLElement>("#color-palette");
+const solvePaintedBtn = requireElement<HTMLButtonElement>("#solve-painted");
+const clearPaintBtn = requireElement<HTMLButtonElement>("#clear-paint");
+
+faceColors.forEach((color, index) => {
+  const swatch = document.createElement("button");
+  swatch.type = "button";
+  swatch.className = "palette-swatch";
+  swatch.style.background = `#${color.toString(16).padStart(6, "0")}`;
+  swatch.dataset.colorIndex = String(index);
+  swatch.setAttribute("aria-label", `Color ${index + 1}`);
+  if (index === 0) swatch.classList.add("palette-swatch--active");
+  colorPalette.appendChild(swatch);
+});
+
+colorPalette.addEventListener("click", (event) => {
+  const swatch = (event.target as HTMLElement).closest<HTMLElement>("[data-color-index]");
+  if (!swatch) return;
+  paintColorIndex = parseInt(swatch.dataset.colorIndex!);
+  colorPalette.querySelectorAll(".palette-swatch").forEach((s) =>
+    s.classList.remove("palette-swatch--active"),
+  );
+  swatch.classList.add("palette-swatch--active");
+});
+
+paintToggleBtn.addEventListener("click", () => {
+  if (paintMode) exitPaintMode();
+  else enterPaintMode();
+});
+
+clearPaintBtn.addEventListener("click", () => {
+  userStickerColors.clear();
+  for (const [, mat] of stickerMaterials) mat.color.set(0xffffff);
+});
+
+const paintRaycaster = new THREE.Raycaster();
+let paintDragged = false;
+let paintDownX = 0;
+let paintDownY = 0;
+
+renderer.domElement.addEventListener("pointerdown", (event) => {
+  if (!paintMode) return;
+  paintDragged = false;
+  paintDownX = event.clientX;
+  paintDownY = event.clientY;
+});
+
+renderer.domElement.addEventListener("pointermove", (event) => {
+  if (!paintMode) return;
+  if (Math.hypot(event.clientX - paintDownX, event.clientY - paintDownY) > 6) paintDragged = true;
+});
+
+renderer.domElement.addEventListener("pointerup", (event) => {
+  if (!paintMode || paintDragged) return;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  paintRaycaster.setFromCamera(new THREE.Vector2(x, y), camera);
+  const hits = paintRaycaster.intersectObjects(puzzleGroup.children, true);
+  for (const hit of hits) {
+    const key = (hit.object as THREE.Mesh).userData.stickerKey as string | undefined;
+    if (!key || key.startsWith("-1:")) continue;
+    userStickerColors.set(key, paintColorIndex);
+    stickerMaterials.get(key)?.color.set(faceColors[paintColorIndex]!);
+    break;
+  }
+});
+
+solvePaintedBtn.addEventListener("click", async () => {
+  if (solving) return;
+  const reconstructed = reconstructStateFromColors();
+  if (!reconstructed) {
+    setInputStatus("Invalid coloring — colors don't match any valid state.");
+    return;
+  }
+
+  const solverId = solverSelect.value as SolverId;
+  const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
+
+  solving = true;
+  solvePaintedBtn.disabled = true;
+  if (solveButton) solveButton.disabled = true;
+  solverSelect.disabled = true;
+  setInputStatus(`Solving painted cube with ${solverName}…`);
+
+  const result = await solveAsync(solverId, reconstructed);
+
+  solving = false;
+  solvePaintedBtn.disabled = false;
+  if (solveButton) solveButton.disabled = false;
+  solverSelect.disabled = false;
+
+  if (result.status !== "solved") {
+    setInputStatus("No solution found — check your color input.");
+    return;
+  }
+
+  const { solution, stats } = result;
+  exitPaintMode();
+  resetVisualState();
+  fastApplyMoves(invertAlgorithm(solution));
+  setInputStatus(`Solution found: ${formatAlgorithm(solution)}`);
+  showStats(solverName, solution.length, stats.elapsedMs, stats.nodesExpanded);
+  completionStatus = "Solved.";
+  enqueueMoves(solution, FAST_TURN_DURATION_MS);
+});
+
+function enterPaintMode() {
+  resetVisualState();
+  paintMode = true;
+  userStickerColors.clear();
+  paintColorIndex = 0;
+  colorPalette.querySelectorAll(".palette-swatch").forEach((s, i) =>
+    s.classList.toggle("palette-swatch--active", i === 0),
+  );
+  for (const [, mat] of stickerMaterials) mat.color.set(0xffffff);
+  paintToggleBtn.textContent = "Exit Paint Mode";
+  paintToggleBtn.classList.add("paint-toggle-btn--active");
+  paintControls.removeAttribute("hidden");
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-move], [data-scramble], [data-clear], [data-solve]")
+    .forEach((btn) => { btn.disabled = true; });
+}
+
+function exitPaintMode() {
+  paintMode = false;
+  for (const [key, mat] of stickerMaterials) {
+    const faceIndex = parseInt(key.split(":")[1]!);
+    mat.color.set(faceColors[faceIndex % faceColors.length]!);
+  }
+  paintToggleBtn.textContent = "Paint Mode";
+  paintToggleBtn.classList.remove("paint-toggle-btn--active");
+  paintControls.setAttribute("hidden", "");
+  document
+    .querySelectorAll<HTMLButtonElement>("[data-move], [data-scramble], [data-clear], [data-solve]")
+    .forEach((btn) => { btn.disabled = false; });
+}
+
+function fastApplyMoves(moves: readonly Move[]) {
+  for (const move of moves) {
+    const rotation = new THREE.Quaternion().setFromAxisAngle(
+      fixedAxes[move.axis],
+      move.amount * ((-Math.PI * 2) / 3),
+    );
+    for (const facet of selectTurningFacets(fixedAxes[move.axis])) {
+      facet.object.position.applyQuaternion(rotation);
+      facet.object.quaternion.premultiply(rotation);
+      facet.center.copy(facet.object.position);
+    }
+    engineState = applyMove(engineState, move);
+  }
+}
+
+function reconstructStateFromColors(): PuzzleState | null {
+  const numSlots = SLOT_IDS.length;
+
+  const userColorsBySlot: Map<number, number>[] = Array.from({ length: numSlots }, () => new Map());
+  for (const [key, colorIdx] of userStickerColors) {
+    const parts = key.split(":");
+    const s = parseInt(parts[0]!);
+    const f = parseInt(parts[1]!);
+    if (s >= 0 && s < numSlots) userColorsBySlot[s]!.set(f, colorIdx);
+  }
+  // Fill unassigned stickers with color 0 (white = default)
+  for (let s = 0; s < numSlots; s++) {
+    for (const [fIdx] of slotFaceNormals[s] ?? []) {
+      if (!userColorsBySlot[s]!.has(fIdx)) userColorsBySlot[s]!.set(fIdx, 0);
+    }
+  }
+
+  const resultPieces = new Array<number>(numSlots).fill(-1);
+  const resultOrientations = new Array<number>(numSlots).fill(0);
+  const usedPieces = new Set<number>();
+
+  for (let s = 0; s < numSlots; s++) {
+    const slotFaces = slotFaceNormals[s];
+    if (!slotFaces) continue;
+    const userColors = userColorsBySlot[s]!;
+    let found = false;
+
+    outer: for (let p = 0; p < numSlots && !found; p++) {
+      if (usedPieces.has(p)) continue;
+      const pieceFaces = slotFaceNormals[p];
+      if (!pieceFaces || pieceFaces.size !== slotFaces.size) continue;
+
+      for (let o = 0; o < 12 && !found; o++) {
+        const [qx, qy, qz, qw] = orientationQuaternion(o);
+        const Q = new THREE.Quaternion(qx, qy, qz, qw);
+
+        let allMatch = true;
+        for (const [g, normalG] of pieceFaces) {
+          const rotated = normalG.clone().applyQuaternion(Q);
+          let bestFace = -1;
+          let bestDot = -Infinity;
+          for (const [f, normalF] of slotFaces) {
+            const d = rotated.dot(normalF);
+            if (d > bestDot) { bestDot = d; bestFace = f; }
+          }
+          if (userColors.get(bestFace) !== g) { allMatch = false; break; }
+        }
+
+        if (allMatch) {
+          resultPieces[s] = p;
+          resultOrientations[s] = o;
+          usedPieces.add(p);
+          found = true;
+          continue outer;
+        }
+      }
+    }
+
+    if (!found) return null;
+  }
+
+  if (resultPieces.includes(-1)) return null;
+  return { pieces: resultPieces, orientations: resultOrientations };
 }
 

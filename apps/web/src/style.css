@@ -331,6 +331,108 @@ h1 {
 }
 
 
+.paint-toggle-btn {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  color: #111827;
+  background: #f8fafc;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+
+.paint-toggle-btn:hover {
+  border-color: #748196;
+  background: #eef2f7;
+}
+
+.paint-toggle-btn--active {
+  border-color: #b45309 !important;
+  color: #ffffff !important;
+  background: #d97706 !important;
+}
+
+.paint-toggle-btn--active:hover {
+  background: #b45309 !important;
+}
+
+.palette {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+  padding: 10px 0 6px;
+}
+
+.palette-swatch {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    transform 100ms ease,
+    border-color 100ms ease,
+    box-shadow 100ms ease;
+}
+
+.palette-swatch:hover {
+  transform: scale(1.12);
+}
+
+.palette-swatch--active {
+  border-color: #111827;
+  box-shadow: 0 0 0 2px #ffffff inset;
+  transform: scale(1.15);
+}
+
+.paint-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.paint-actions button {
+  min-height: 44px;
+  border: 1px solid #cfd6df;
+  border-radius: 8px;
+  color: #111827;
+  background: #f8fafc;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.paint-actions button:hover {
+  border-color: #748196;
+  background: #eef2f7;
+  transform: translateY(-1px);
+}
+
+.paint-actions button:first-child {
+  border-color: #0f766e;
+  color: #ffffff;
+  background: #0f766e;
+}
+
+.paint-actions button:first-child:hover {
+  border-color: #0b5f59;
+  background: #0b5f59;
+}
+
+.paint-actions button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
 @media (max-width: 800px) {
   body {
     overflow: auto;
