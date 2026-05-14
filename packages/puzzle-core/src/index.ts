@@ -50,6 +50,10 @@ export function slotIdForPiece(piece: PieceId): SlotId {
 const SLOT_INDEX_BY_ID = new Map(SLOT_IDS.map((id, index) => [id, index]));
 
 type MoveCycle = { sourceIndex: number; targetIndex: number };
+type MoveTransform = {
+  cycles: readonly MoveCycle[];
+  orientationTransition: readonly number[];
+};
 
 const MOVE_CYCLES: Record<MoveAxis, MoveCycle[]> = Object.fromEntries(
   MOVE_AXES.map((axis) => [
@@ -118,6 +122,16 @@ const ORIENTATION_TRANSITION: Record<MoveAxis, readonly number[]> = (() => {
   ) as unknown as Record<MoveAxis, readonly number[]>;
 })();
 
+const MOVE_TRANSFORMS: Record<MoveAxis, Record<MoveAmount, MoveTransform>> = Object.fromEntries(
+  MOVE_AXES.map((axis) => [
+    axis,
+    {
+      1: createMoveTransform(axis, 1),
+      [-1]: createMoveTransform(axis, -1),
+    },
+  ]),
+) as Record<MoveAxis, Record<MoveAmount, MoveTransform>>;
+
 export function orientationQuaternion(id: number): Orientation {
   return ORIENTATION_QUATERNIONS[id]!;
 }
@@ -141,14 +155,16 @@ export function invertAlgorithm(moves: readonly Move[]): Move[] {
 }
 
 export function applyMove(state: PuzzleState, move: Move): PuzzleState {
-  const amount = move.amount === 1 ? 1 : 2;
-  let next = state;
+  const nextPieces = [...state.pieces];
+  const nextOrientations = [...state.orientations];
+  const transform = MOVE_TRANSFORMS[move.axis][move.amount];
 
-  for (let i = 0; i < amount; i += 1) {
-    next = applyClockwiseMove(next, move.axis);
+  for (const { sourceIndex, targetIndex } of transform.cycles) {
+    nextPieces[targetIndex] = state.pieces[sourceIndex]!;
+    nextOrientations[targetIndex] = transform.orientationTransition[state.orientations[sourceIndex]!]!;
   }
 
-  return next;
+  return { pieces: nextPieces, orientations: nextOrientations };
 }
 
 export function applyAlgorithm(state: PuzzleState, moves: readonly Move[]): PuzzleState {
@@ -249,19 +265,6 @@ function normalizeTurnAmount(amount: number): MoveAmount | 0 {
   return normalized === 1 ? 1 : -1;
 }
 
-function applyClockwiseMove(state: PuzzleState, axis: MoveAxis): PuzzleState {
-  const nextPieces = [...state.pieces];
-  const nextOrientations = [...state.orientations];
-  const transition = ORIENTATION_TRANSITION[axis];
-
-  for (const { sourceIndex, targetIndex } of MOVE_CYCLES[axis]) {
-    nextPieces[targetIndex] = state.pieces[sourceIndex]!;
-    nextOrientations[targetIndex] = transition[state.orientations[sourceIndex]!]!;
-  }
-
-  return { pieces: nextPieces, orientations: nextOrientations };
-}
-
 function buildReachablePiecePermutationKeys(): Set<string> {
   const solved = createSolvedState();
   const seen = new Set<string>([serializePieces(solved.pieces)]);
@@ -292,6 +295,27 @@ function buildReachablePiecePermutationKeys(): Set<string> {
 
 function serializePieces(pieces: readonly PieceId[]): string {
   return pieces.join(",");
+}
+
+function createMoveTransform(axis: MoveAxis, amount: MoveAmount): MoveTransform {
+  const clockwiseSourceToTarget = SLOT_IDS.map((_, index) => index);
+
+  for (const { sourceIndex, targetIndex } of MOVE_CYCLES[axis]) {
+    clockwiseSourceToTarget[sourceIndex] = targetIndex;
+  }
+
+  const sourceToTarget = amount === 1
+    ? clockwiseSourceToTarget
+    : clockwiseSourceToTarget.map((target) => clockwiseSourceToTarget[target]!);
+  const cycles = sourceToTarget
+    .map((targetIndex, sourceIndex) => ({ sourceIndex, targetIndex }))
+    .filter(({ sourceIndex, targetIndex }) => sourceIndex !== targetIndex);
+  const clockwiseTransition = ORIENTATION_TRANSITION[axis];
+  const orientationTransition = amount === 1
+    ? clockwiseTransition
+    : clockwiseTransition.map((next) => clockwiseTransition[next]!);
+
+  return { cycles, orientationTransition };
 }
 
 function createSlotDefinitions(): SlotDefinition[] {
