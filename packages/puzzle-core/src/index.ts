@@ -156,16 +156,25 @@ export function invertAlgorithm(moves: readonly Move[]): Move[] {
 }
 
 export function applyMove(state: PuzzleState, move: Move): PuzzleState {
-  const nextPieces = [...state.pieces];
-  const nextOrientations = [...state.orientations];
+  const pieces = state.pieces;
+  const orientations = state.orientations;
+  const nextPieces = [
+    pieces[0]!, pieces[1]!, pieces[2]!, pieces[3]!, pieces[4]!, pieces[5]!, pieces[6]!,
+    pieces[7]!, pieces[8]!, pieces[9]!, pieces[10]!, pieces[11]!, pieces[12]!, pieces[13]!,
+  ];
+  const nextOrientations = [
+    orientations[0]!, orientations[1]!, orientations[2]!, orientations[3]!, orientations[4]!,
+    orientations[5]!, orientations[6]!, orientations[7]!, orientations[8]!, orientations[9]!,
+    orientations[10]!, orientations[11]!, orientations[12]!, orientations[13]!,
+  ];
   const { sourceIndexes, targetIndexes, orientationTransition } =
     MOVE_TRANSFORMS[move.axis][move.amount];
 
   for (let i = 0; i < sourceIndexes.length; i += 1) {
     const sourceIndex = sourceIndexes[i]!;
     const targetIndex = targetIndexes[i]!;
-    nextPieces[targetIndex] = state.pieces[sourceIndex]!;
-    nextOrientations[targetIndex] = orientationTransition[state.orientations[sourceIndex]!]!;
+    nextPieces[targetIndex] = pieces[sourceIndex]!;
+    nextOrientations[targetIndex] = orientationTransition[orientations[sourceIndex]!]!;
   }
 
   return { pieces: nextPieces, orientations: nextOrientations };
