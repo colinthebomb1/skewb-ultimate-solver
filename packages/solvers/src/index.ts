@@ -274,7 +274,25 @@ function search(context: SearchContext): Move[] | undefined {
 }
 
 function serializeState(state: PuzzleState): string {
-  return String.fromCharCode(...state.pieces, ...state.orientations);
+  const pieces = state.pieces;
+  const orientations = state.orientations;
+
+  return String.fromCharCode(
+    pieces[0]! | (pieces[1]! << 4),
+    pieces[2]! | (pieces[3]! << 4),
+    pieces[4]! | (pieces[5]! << 4),
+    pieces[6]! | (pieces[7]! << 4),
+    pieces[8]! | (pieces[9]! << 4),
+    pieces[10]! | (pieces[11]! << 4),
+    pieces[12]! | (pieces[13]! << 4),
+    orientations[0]! | (orientations[1]! << 4),
+    orientations[2]! | (orientations[3]! << 4),
+    orientations[4]! | (orientations[5]! << 4),
+    orientations[6]! | (orientations[7]! << 4),
+    orientations[8]! | (orientations[9]! << 4),
+    orientations[10]! | (orientations[11]! << 4),
+    orientations[12]! | (orientations[13]! << 4),
+  );
 }
 
 export function idaStarSolver(): Solver {

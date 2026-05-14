@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "hotpaths": "npm run build && node ./dist/hotpaths.js"
   },
   "dependencies": {
     "@skewb-ultimate/puzzle-core": "0.0.0",
     "@skewb-ultimate/solvers": "0.0.0"
   }
 }
-
