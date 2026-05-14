@@ -59,15 +59,15 @@ type QueuedTurn = {
 const faceColors = [
   0xe6e6e6, // white (off-white sticker)
   0xffeb3b, // yellow
-  0xdc422f, // red
+  0xff2a1a, // red
   0x3d81f6, // blue
   0x009d54, // green
   0xe87000, // orange
   0x8a1bff, // violet
   0x53b1f3, // light blue
   0xdcd3a5, // light yellow (cream)
-  0xed96a1, // pink
-  0x4ad931, // light green (lime)
+  0xff2288, // pink (hot pink)
+  0x66e600, // light green (lime)
   0x4b515a, // gray
 ];
 
