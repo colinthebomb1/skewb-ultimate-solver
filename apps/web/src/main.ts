@@ -283,10 +283,11 @@ const solverWorker = new Worker(new URL("./solver.worker.ts", import.meta.url), 
 
 function solveAsync(solverId: SolverId, state: PuzzleState): Promise<SolveResult> {
   return new Promise((resolve, reject) => {
-    const onMessage = (event: MessageEvent<SolveResult>) => {
+    const onMessage = (event: MessageEvent<SolveResult | { type: "ready" }>) => {
+      if ((event.data as { type?: string }).type === "ready") return; // startup signal, not a result
       solverWorker.removeEventListener("message", onMessage);
       solverWorker.removeEventListener("error", onError);
-      resolve(event.data);
+      resolve(event.data as SolveResult);
     };
     const onError = (event: ErrorEvent) => {
       solverWorker.removeEventListener("message", onMessage);
@@ -377,6 +378,24 @@ solveButton?.addEventListener("click", async () => {
     setInputStatus("No solution found within node limit.");
   }
 });
+
+// The worker builds its heuristic tables (~2.5s) on startup and posts a "ready"
+// message when done. Keep Solve disabled until then so an early click doesn't
+// appear to hang while that build runs.
+let solverReady = false;
+function markSolverReady() {
+  if (solverReady) return;
+  solverReady = true;
+  if (solveButton && !solving) solveButton.disabled = false;
+  if (inputStatus.textContent === "Preparing solver…") setInputStatus("Ready");
+}
+if (solveButton) solveButton.disabled = true;
+setInputStatus("Preparing solver…");
+solverWorker.addEventListener("message", (event: MessageEvent<{ type?: string }>) => {
+  if (event.data?.type === "ready") markSolverReady();
+});
+// Safety net: enable solving anyway if the ready signal never arrives.
+setTimeout(markSolverReady, 8000);
 
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   hideStepper();

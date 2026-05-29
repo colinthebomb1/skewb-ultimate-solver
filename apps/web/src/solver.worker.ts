@@ -30,4 +30,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
 // Build the heuristic tables now (off the main thread) so the first solve
 // isn't delayed by the one-time ~2.5s build. Deferred so the onmessage handler
 // is registered first; an early solve request just triggers the lazy build.
-setTimeout(() => warmUpHeuristics(), 0);
+// Signal "ready" once the build finishes so the UI can enable solving.
+setTimeout(() => {
+  warmUpHeuristics();
+  self.postMessage({ type: "ready" });
+}, 0);
