@@ -455,13 +455,15 @@ function canonicalizeQuaternion(quaternion: Orientation): Orientation {
     cleanQuaternionValue(quaternion[3] / length),
   ];
 
-  if (normalized[3] < 0) {
-    return [
-      -normalized[0],
-      -normalized[1],
-      -normalized[2],
-      -normalized[3],
-    ];
+  // q and -q represent the same rotation, so fix the sign to a canonical form.
+  // Flip based on the first nonzero component (scanning w, x, y, z) being negative.
+  // Checking w alone is insufficient: 180° rotations have w == 0, which would
+  // otherwise leave q and -q as two distinct orientations.
+  for (const component of [normalized[3], normalized[0], normalized[1], normalized[2]]) {
+    if (component > 0) break;
+    if (component < 0) {
+      return [-normalized[0], -normalized[1], -normalized[2], -normalized[3]];
+    }
   }
 
   return normalized;
