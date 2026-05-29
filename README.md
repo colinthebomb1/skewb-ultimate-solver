@@ -33,9 +33,11 @@ Four solvers are available from the dropdown, each with different tradeoffs:
 | Bidirectional IDA\* | Split the depth budget and match forward/backward frontiers | Deeper scrambles, best practical performance |
 | Depth-Limited DFS | Plain DFS with a depth cap | Reference baseline |
 
-The IDA\* heuristic combines two independent lower bounds: an exact piece-permutation distance (precomputed by BFS over permutations, ignoring orientations) and a counting bound on wrong orientations. Both are admissible, so `max(permDist, ⌈wrongOrientations / 7⌉)` is too.
+The IDA\* heuristic is the max of several independent admissible lower bounds: an exact piece-permutation distance (BFS over permutations, ignoring orientations) and two **pattern databases**. Each pattern database fixes a six-piece subset and stores the exact number of moves to bring just those pieces home — both position *and* orientation — found by BFS over the abstracted state space. Because a move's effect on a piece depends only on the slot it occupies, the subset projection is a valid abstraction, so every stored distance is an admissible and consistent lower bound, and so is their max.
 
-Solvers run in a Web Worker so the UI stays responsive during search.
+Measuring real orientation distance — the hard part of this puzzle, since permutation is already handled exactly — rather than a coarse "wrong orientation" count shrinks the IDA\* search tree by more than 100× on harder scrambles (most dramatically for the single-ended solver).
+
+Solvers run in a Web Worker so the UI stays responsive during search. The pattern databases (~300K entries) are built once, a few seconds of work that happens off the main thread as the worker starts, so the first solve stays fast.
 
 ## Engine
 
