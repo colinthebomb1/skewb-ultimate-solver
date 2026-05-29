@@ -419,24 +419,20 @@ function search(context: SearchContext): Move[] | undefined {
 }
 
 function serializeState(state: PuzzleState): string {
-  const pieces = state.pieces;
-  const orientations = state.orientations;
+  const p = state.pieces;
+  const o = state.orientations;
 
+  // Every value is a nibble (pieces 0-13, orientations 0-11), so pack the 28
+  // nibbles four-per-char into 7 16-bit chars — half the key length of two
+  // nibbles per char, which makes the per-node Map hashing/allocation cheaper.
   return String.fromCharCode(
-    pieces[0]! | (pieces[1]! << 4),
-    pieces[2]! | (pieces[3]! << 4),
-    pieces[4]! | (pieces[5]! << 4),
-    pieces[6]! | (pieces[7]! << 4),
-    pieces[8]! | (pieces[9]! << 4),
-    pieces[10]! | (pieces[11]! << 4),
-    pieces[12]! | (pieces[13]! << 4),
-    orientations[0]! | (orientations[1]! << 4),
-    orientations[2]! | (orientations[3]! << 4),
-    orientations[4]! | (orientations[5]! << 4),
-    orientations[6]! | (orientations[7]! << 4),
-    orientations[8]! | (orientations[9]! << 4),
-    orientations[10]! | (orientations[11]! << 4),
-    orientations[12]! | (orientations[13]! << 4),
+    p[0]! | (p[1]! << 4) | (p[2]! << 8) | (p[3]! << 12),
+    p[4]! | (p[5]! << 4) | (p[6]! << 8) | (p[7]! << 12),
+    p[8]! | (p[9]! << 4) | (p[10]! << 8) | (p[11]! << 12),
+    p[12]! | (p[13]! << 4) | (o[0]! << 8) | (o[1]! << 12),
+    o[2]! | (o[3]! << 4) | (o[4]! << 8) | (o[5]! << 12),
+    o[6]! | (o[7]! << 4) | (o[8]! << 8) | (o[9]! << 12),
+    o[10]! | (o[11]! << 4) | (o[12]! << 8) | (o[13]! << 12),
   );
 }
 

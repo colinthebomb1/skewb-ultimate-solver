@@ -177,7 +177,7 @@ function solverRow(depth: number, trials: number, results: TrialResult[]): strin
 }
 
 async function runSolverBench(solver: Solver) {
-  const TRIALS = 20;
+  const TRIALS = 50;
   const MAX_NODES = 10_000_000;
 
   console.log(`\n${solver.name}`);
@@ -227,7 +227,7 @@ async function main() {
   // isn't charged to the first solve and skewing the depth-1 row.
   warmUpHeuristics();
 
-  console.log("\n\nSolver benchmarks — 20 deterministic trials per depth, maxNodes 10M");
+  console.log("\n\nSolver benchmarks — 50 deterministic trials per depth, maxNodes 10M");
   console.log("=".repeat(TOTAL_WIDTH));
 
   await runSolverBench(idaStarSolver());
