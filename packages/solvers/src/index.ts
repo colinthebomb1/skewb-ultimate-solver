@@ -358,6 +358,17 @@ function patternDatabaseKey(track: readonly number[], state: PuzzleState): numbe
   return key;
 }
 
+/**
+ * Eagerly build the heuristic tables (pattern databases and the permutation
+ * distance table) used by the IDA* solvers. They are otherwise built lazily on
+ * the first solve, which costs ~2.5s; calling this ahead of time — e.g. when a
+ * solver worker spins up — keeps the first user solve fast. Idempotent.
+ */
+export function warmUpHeuristics(): void {
+  permutationDistance(createSolvedState().pieces);
+  getPatternDatabases();
+}
+
 function search(context: SearchContext): Move[] | undefined {
   if (context.stats.nodesExpanded >= context.maxNodes) {
     return undefined;

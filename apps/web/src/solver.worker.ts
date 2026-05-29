@@ -3,6 +3,7 @@ import {
   bidirectionalIdaStarSolver,
   depthLimitedDfsSolver,
   idaStarSolver,
+  warmUpHeuristics,
   type SolverId,
 } from "@skewb-ultimate/solvers";
 import type { PuzzleState } from "@skewb-ultimate/puzzle-core";
@@ -25,3 +26,8 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const result = await solver.solve(state);
   self.postMessage(result);
 };
+
+// Build the heuristic tables now (off the main thread) so the first solve
+// isn't delayed by the one-time ~2.5s build. Deferred so the onmessage handler
+// is registered first; an early solve request just triggers the lazy build.
+setTimeout(() => warmUpHeuristics(), 0);
