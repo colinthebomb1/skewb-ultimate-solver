@@ -14,9 +14,13 @@ A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.ja
 - Lets you enter your real physical cube's colors and solve it directly ("My Cube" mode)
 - Shares scrambles via URL hash so you can send a specific position to someone
 
-| Solver panel | My Cube mode |
-|---|---|
-| ![Solver panel](docs/assets/solver.png) | ![My Cube paint mode](docs/assets/paint-mode.png) |
+**Solver panel**
+
+![Solver panel](docs/assets/solver.png)
+
+**My Cube mode** — paint your physical cube's colors and solve it directly
+
+![My Cube paint mode](docs/assets/paint-mode.png)
 
 ## Algorithms
 
