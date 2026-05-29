@@ -5,16 +5,9 @@ import {
   isSolved,
   parseAlgorithm,
 } from "@skewb-ultimate/puzzle-core";
-import { bidirectionalBfsSolver, depthLimitedDfsSolver, randomWalkSolver } from "../src";
+import { bidirectionalBfsSolver, depthLimitedDfsSolver } from "../src";
 
 describe("solver interface", () => {
-  it("returns a placeholder result for the random walk solver", async () => {
-    const result = await randomWalkSolver().solve(createSolvedState());
-
-    expect(result.status).toBe("not-implemented");
-    expect(result.solution).toEqual([]);
-  });
-
   it("solves an already solved state", async () => {
     const result = await depthLimitedDfsSolver().solve(createSolvedState());
 

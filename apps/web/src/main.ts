@@ -24,8 +24,6 @@ import type { SolveResult, SolverId } from "@skewb-ultimate/solvers";
 import type { WorkerRequest } from "./solver.worker";
 import "./style.css";
 
-type AxisId = MoveAxis;
-
 type PuzzleFacet = {
   object: THREE.Group;
   center: THREE.Vector3;
@@ -86,7 +84,7 @@ let paintColorIndex = 0;
 const userStickerColors = new Map<string, number>(); // stickerKey → color index
 
 // The vectors are dodecahedron vertices. These represent the four turn axes.
-const fixedAxes: Record<AxisId, THREE.Vector3> = {
+const fixedAxes: Record<MoveAxis, THREE.Vector3> = {
   L: new THREE.Vector3(-1, 1, -1).normalize(),
   R: new THREE.Vector3(1, 1, 1).normalize(),
   D: new THREE.Vector3(1, -1, -1).normalize(),
@@ -685,7 +683,7 @@ function groupPhysicalPieces(fragments: PieceFragment[]): PuzzleFacet[] {
 }
 
 function pieceKey(center: THREE.Vector3) {
-  return (Object.keys(fixedAxes) as AxisId[])
+  return (Object.keys(fixedAxes) as MoveAxis[])
     .map((axisId) => `${axisId}${center.dot(fixedAxes[axisId]) >= 0 ? "+" : "-"}`)
     .join("|");
 }

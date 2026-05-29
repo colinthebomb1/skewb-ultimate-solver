@@ -13,13 +13,11 @@ The goal is to render a realistic 12-color Skewb Ultimate, animate physically ac
 - Multiple solver strategies with stats and comparisons.
 - Future support for manual state entry and more serious benchmarks.
 
-## Planned Stack
+## Stack
 
-- TypeScript
-- Vite
-- Three.js
-- Vitest
-- Optional future Rust/C++ WebAssembly solver core
+- TypeScript monorepo (puzzle-core, solvers, bench, web)
+- Vite + Three.js (browser app)
+- Vitest (engine and solver tests)
 
 ## Docs
 
@@ -44,4 +42,4 @@ Tiny documentation edits can happen directly on `main`; code features should usu
 
 ## Current Status
 
-Planning and notation research. The first implementation milestone is a tested move model and a 3D animation demo for legal Skewb Ultimate turns.
+The core project is complete and working. The 3D puzzle renders with accurate geometry, move animations, and a solver panel. Four algorithms are implemented (Depth-Limited DFS, Bidirectional BFS, IDA*, Bidirectional IDA*) and run in a Web Worker. Scrambles are URL-shareable via the location hash. A "My Cube" paint mode lets you enter your physical cube's colors and solve it directly. Deploy to GitHub Pages is the remaining step.

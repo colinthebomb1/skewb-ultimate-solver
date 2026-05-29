@@ -26,31 +26,13 @@ export type SolveResult = {
   };
 };
 
-export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "bidirectional-ida-star" | "random-walk";
+export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "bidirectional-ida-star";
 
 export type Solver = {
   id: string;
   name: string;
   solve(state: PuzzleState, options?: SolverOptions): Promise<SolveResult>;
 };
-
-export function randomWalkSolver(): Solver {
-  return {
-    id: "random-walk",
-    name: "Random Walk",
-    async solve() {
-      return {
-        status: "not-implemented",
-        solution: [],
-        stats: {
-          elapsedMs: 0,
-          nodesExpanded: 0,
-          maxDepthReached: 0,
-        },
-      };
-    },
-  };
-}
 
 export function depthLimitedDfsSolver(): Solver {
   return {
