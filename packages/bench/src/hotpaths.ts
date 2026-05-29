@@ -12,8 +12,8 @@ import {
 import {
   bidirectionalBfsSolver,
   bidirectionalIdaStarSolver,
+  idaStarSolver,
   warmUpHeuristics,
-  // idaStarSolver omitted — too slow for benchmarking; covered by bidirectional variant
   type Solver,
 } from "@skewb-ultimate/solvers";
 
@@ -230,8 +230,9 @@ async function main() {
   console.log("\n\nSolver benchmarks — 20 deterministic trials per depth, maxNodes 10M");
   console.log("=".repeat(TOTAL_WIDTH));
 
-  await runSolverBench(bidirectionalBfsSolver());
+  await runSolverBench(idaStarSolver());
   await runSolverBench(bidirectionalIdaStarSolver());
+  await runSolverBench(bidirectionalBfsSolver());
 }
 
 void main();

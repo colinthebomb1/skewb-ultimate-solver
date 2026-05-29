@@ -125,9 +125,9 @@ app.innerHTML = `
         <div class="solver-row">
           <button type="button" data-solve>Solve</button>
           <select id="solver-select" aria-label="Solver algorithm">
+            <option value="ida-star">IDA*</option>
             <option value="bidirectional-ida-star">Bidirectional IDA*</option>
             <option value="bidirectional-bfs">Bidirectional BFS</option>
-            <option value="ida-star">IDA*</option>
             <option value="depth-limited-dfs">Depth-Limited DFS</option>
           </select>
         </div>
@@ -1315,9 +1315,10 @@ solvePaintedBtn.addEventListener("click", async () => {
   const reconstructed = reconstructStateFromColors();
   if (!reconstructed) return;
 
-  // Paint-mode solve uses Bidirectional IDA* — no node limit, handles any depth.
-  const solverId: SolverId = "bidirectional-ida-star";
-  const solverName = "Bidirectional IDA*";
+  // Paint-mode solve uses IDA* — the pattern-database heuristic makes the
+  // single-ended search the fastest solver, with no node limit.
+  const solverId: SolverId = "ida-star";
+  const solverName = "IDA*";
 
   solving = true;
   solvePaintedBtn.disabled = true;
