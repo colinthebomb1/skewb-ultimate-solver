@@ -1,6 +1,6 @@
 # Skewb Ultimate Solver
 
-A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.jaapsch.net/puzzles/ultimate.htm), a dodecahedral twisty puzzle with 12 colors and roughly 100 million reachable states.
+A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.jaapsch.net/puzzles/ultimate.htm), a dodecahedral twisty puzzle with 12 colors and [100,776,960 reachable positions](https://www.jaapsch.net/puzzles/ultimate.htm) — every one solvable in at most 14 moves.
 
 **[Live demo →](https://colinthebomb1.github.io/skewb-ultimate-solver/)**
 
@@ -40,6 +40,8 @@ Measuring real orientation distance — the hard part of this puzzle, since perm
 This is also why plain IDA\* is the default rather than the bidirectional variant. Bidirectional search pays off when the heuristic is weak — meeting in the middle roughly halves the effective search depth. A strong heuristic already collapses the single-ended search toward the goal, so the second search direction (which has no heuristic toward the scrambled start) becomes overhead. With the pattern databases, single-ended IDA\* expands far fewer nodes than the bidirectional version.
 
 Solvers run in a Web Worker so the UI stays responsive during search. The pattern databases (~300K entries) are built once, a few seconds of work that happens off the main thread as the worker starts, so the first solve stays fast.
+
+All solvers return optimal (shortest) solutions. Solving 100,000 random positions to optimality, the mean *shortest* solution length is **10.35 moves** — most positions need 10 or 11 — while the hardest possible positions still solve in the 14-move maximum. (Uniform sampling characterises typical difficulty but won't surface the rare 14-move antipodes; the diameter of 14 comes from [Jaap's full analysis](https://www.jaapsch.net/puzzles/ultimate.htm).)
 
 ## Engine
 
