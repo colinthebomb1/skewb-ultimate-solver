@@ -12,6 +12,7 @@ import {
 import {
   bidirectionalBfsSolver,
   bidirectionalIdaStarSolver,
+  warmUpHeuristics,
   // idaStarSolver omitted — too slow for benchmarking; covered by bidirectional variant
   type Solver,
 } from "@skewb-ultimate/solvers";
@@ -221,6 +222,10 @@ async function runSolverBench(solver: Solver) {
 
 async function main() {
   runHotPathBench();
+
+  // Build the IDA* heuristic tables up front so their one-time ~2.5s build
+  // isn't charged to the first solve and skewing the depth-1 row.
+  warmUpHeuristics();
 
   console.log("\n\nSolver benchmarks — 20 deterministic trials per depth, maxNodes 10M");
   console.log("=".repeat(TOTAL_WIDTH));
