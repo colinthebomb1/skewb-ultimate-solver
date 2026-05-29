@@ -1,45 +1,51 @@
 # Skewb Ultimate Solver Lab
 
-A browser-based Skewb Ultimate solver and visualization lab.
+A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.jaapsch.net/puzzles/ultimate.htm) — a dodecahedral twisty puzzle with 12 colors and roughly 100 million reachable states.
 
-The goal is to render a realistic 12-color Skewb Ultimate, animate physically accurate turns, and compare different solving algorithms over time. This project prioritizes clean visuals, accurate move modeling, testable puzzle logic, and solver experimentation over optimal solutions.
+## What it does
 
-## Project Goals
+- Renders the puzzle as individual movable pieces with accurate dodecahedron geometry
+- Animates physical 120° turns around the four fixed-corner axes
+- Solves scrambles using multiple algorithms and animates the solution step by step
+- Lets you enter your real physical cube's colors and solve it directly ("My Cube" mode)
+- Shares scrambles via URL hash so you can send a specific position to someone
 
-- Real-piece 3D Skewb Ultimate rendering with clean turn animations.
-- Pure TypeScript puzzle engine separated from the UI.
-- Jaap-style move notation: `L`, `R`, `D`, `B` and inverses.
-- Generated scrambles and animated playback.
-- Multiple solver strategies with stats and comparisons.
-- Future support for manual state entry and more serious benchmarks.
+## Algorithms
+
+Four solvers are available from the dropdown, each with different tradeoffs:
+
+| Algorithm | Approach | Good for |
+|---|---|---|
+| Bidirectional BFS | Expand forward from start and backward from goal, meet in the middle | Short scrambles, guaranteed shortest solution |
+| IDA\* | Iterative deepening with an admissible heuristic | Medium scrambles without BFS memory cost |
+| Bidirectional IDA\* | Split the depth budget and match forward/backward frontiers | Deeper scrambles, best practical performance |
+| Depth-Limited DFS | Plain DFS with a depth cap | Reference baseline |
+
+The IDA\* heuristic combines two independent lower bounds: an exact piece-permutation distance (precomputed by BFS over permutations, ignoring orientations) and a counting bound on wrong orientations. Both are admissible, so `max(permDist, ⌈wrongOrientations / 7⌉)` is too.
+
+Solvers run in a Web Worker so the UI stays responsive during search.
+
+## Engine
+
+The puzzle engine (`packages/puzzle-core`) is pure TypeScript with no browser dependencies. State is `{ pieces: number[], orientations: number[] }` throughout — no quaternion strings in the hot path. Move tables are precomputed at startup so each `applyMove` is a small indexed array copy. The four axes generate the tetrahedral rotation group (order 12), giving 12 possible piece orientations tracked as integer IDs.
+
+## Running locally
+
+```bash
+npm install
+npm run dev        # start the Vite dev server
+npm test           # run engine and solver tests
+npm run bench      # CLI solver benchmark (node)
+```
 
 ## Stack
 
-- TypeScript monorepo (puzzle-core, solvers, bench, web)
-- Vite + Three.js (browser app)
-- Vitest (engine and solver tests)
+- TypeScript monorepo — `puzzle-core`, `solvers`, `bench`, `apps/web`
+- Three.js for 3D rendering
+- Vite for bundling
+- Vitest for tests
+- Web Workers for non-blocking solve
 
-## Docs
+## Notation
 
-- [DESIGN.md](./DESIGN.md): architecture, goals, risks, and implementation strategy.
-- [ROADMAP.md](./ROADMAP.md): milestone plan.
-- [NOTATION.md](./NOTATION.md): move notation and physical puzzle labeling conventions.
-- [docs/REFERENCES.md](./docs/REFERENCES.md): external references used for puzzle facts and notation.
-
-## Development Workflow
-
-Use `main` for stable checkpoints and short-lived feature branches for meaningful project slices, such as:
-
-```text
-scaffold
-notation-model
-three-renderer
-move-animation
-solver-baselines
-```
-
-Tiny documentation edits can happen directly on `main`; code features should usually get a branch.
-
-## Current Status
-
-The core project is complete and working. The 3D puzzle renders with accurate geometry, move animations, and a solver panel. Four algorithms are implemented (Depth-Limited DFS, Bidirectional BFS, IDA*, Bidirectional IDA*) and run in a Web Worker. Scrambles are URL-shareable via the location hash. A "My Cube" paint mode lets you enter your physical cube's colors and solve it directly. Deploy to GitHub Pages is the remaining step.
+Moves follow Jaap-style notation: `L`, `R`, `D`, `B` for clockwise 120° turns around each fixed corner, with `'` for inverse. See [NOTATION.md](./NOTATION.md) for the full convention.
