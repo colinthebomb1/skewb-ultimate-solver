@@ -2,6 +2,10 @@
 
 A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.jaapsch.net/puzzles/ultimate.htm), a dodecahedral twisty puzzle with 12 colors and roughly 100 million reachable states.
 
+**[Live demo →](https://colinthebomb1.github.io/skewb-ultimate-solver/)**
+
+![Solver animating a solution](docs/assets/solve.gif)
+
 ## What it does
 
 - Renders the puzzle as individual movable pieces with accurate dodecahedron geometry
@@ -9,6 +13,10 @@ A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.ja
 - Solves scrambles using multiple algorithms and animates the solution step by step
 - Lets you enter your real physical cube's colors and solve it directly ("My Cube" mode)
 - Shares scrambles via URL hash so you can send a specific position to someone
+
+| Solver panel | My Cube mode |
+|---|---|
+| ![Solver panel](docs/assets/solver.png) | ![My Cube paint mode](docs/assets/paint-mode.png) |
 
 ## Algorithms
 
