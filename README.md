@@ -1,4 +1,4 @@
-# Skewb Ultimate Solver Lab
+# Skewb Ultimate Solver
 
 A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.jaapsch.net/puzzles/ultimate.htm), a dodecahedral twisty puzzle with 12 colors and roughly 100 million reachable states.
 
