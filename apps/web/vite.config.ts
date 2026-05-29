@@ -5,6 +5,7 @@ import { resolve, dirname } from "path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  base: "/skewb-ultimate-solver/",
   resolve: {
     alias: {
       "@skewb-ultimate/puzzle-core": resolve(__dirname, "../../packages/puzzle-core/src/index.ts"),
