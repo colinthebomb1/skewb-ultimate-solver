@@ -245,6 +245,119 @@ const SEARCH_MOVES: readonly Move[] = MOVE_AXES.flatMap((axis) =>
   SEARCH_AMOUNTS.map((amount) => ({ axis, amount })),
 );
 
+// ---- Pattern database heuristic -------------------------------------------
+// Each PDB tracks the (slot, orientation) of a fixed subset of pieces and
+// stores the exact number of moves to bring just those pieces home. Because a
+// move's effect on a piece depends only on the slot it occupies, the subset
+// projection is a valid abstraction, so the stored distance is an admissible
+// and consistent lower bound on the full solve. max() over several PDBs (and
+// the permutation distance) stays admissible.
+//
+// We track two disjoint 6-piece subsets. A 6-piece key packs into 48 bits, so
+// it fits in a JS safe integer and we can use a fast Map<number>. Both tables
+// are built once by BFS over the abstract space (~2.5s total) the first time a
+// solver runs, mirroring how permutationDistance is built lazily.
+
+const SLOT_COUNT = 14;
+const ORIENTATION_COUNT = 12;
+const PDB_SUBSETS: readonly (readonly number[])[] = [
+  [7, 8, 9, 10, 11, 12],
+  [0, 1, 2, 3, 4, 5],
+];
+
+// forward[m][slot]  = slot the piece in `slot` moves to under SEARCH_MOVES[m]
+// oriMap[m][slot][o] = that piece's orientation after the move
+type AbstractTables = { forward: number[][]; oriMap: number[][][] };
+let abstractTables: AbstractTables | undefined;
+
+function getAbstractTables(): AbstractTables {
+  if (abstractTables) return abstractTables;
+  const identityPieces = Array.from({ length: SLOT_COUNT }, (_, i) => i);
+  const forward: number[][] = [];
+  const oriMap: number[][][] = [];
+
+  SEARCH_MOVES.forEach((move) => {
+    const landed = applyMove({ pieces: identityPieces, orientations: new Array(SLOT_COUNT).fill(0) }, move);
+    const fwd = new Array<number>(SLOT_COUNT);
+    for (let target = 0; target < SLOT_COUNT; target++) fwd[landed.pieces[target]!] = target;
+    forward.push(fwd);
+
+    const om: number[][] = Array.from({ length: SLOT_COUNT }, () => new Array<number>(ORIENTATION_COUNT));
+    for (let o = 0; o < ORIENTATION_COUNT; o++) {
+      const moved = applyMove({ pieces: identityPieces, orientations: new Array(SLOT_COUNT).fill(o) }, move);
+      for (let slot = 0; slot < SLOT_COUNT; slot++) om[slot]![o] = moved.orientations[fwd[slot]!]!;
+    }
+    oriMap.push(om);
+  });
+
+  abstractTables = { forward, oriMap };
+  return abstractTables;
+}
+
+type PatternDatabase = { track: readonly number[]; distances: Map<number, number> };
+let patternDatabases: PatternDatabase[] | undefined;
+
+// Abstract state is a flat [slot0, ori0, slot1, ori1, ...]; pack to a number.
+function packAbstract(abstract: Int8Array, size: number): number {
+  let key = 0;
+  for (let i = 0; i < size; i++) key = key * 256 + ((abstract[2 * i]! << 4) | abstract[2 * i + 1]!);
+  return key;
+}
+
+function buildPatternDatabase(track: readonly number[]): PatternDatabase {
+  const { forward, oriMap } = getAbstractTables();
+  const size = track.length;
+  const solved = new Int8Array(2 * size);
+  for (let i = 0; i < size; i++) solved[2 * i] = track[i]!;
+
+  const distances = new Map<number, number>([[packAbstract(solved, size), 0]]);
+  let frontier: Int8Array[] = [solved];
+  let depth = 0;
+
+  while (frontier.length > 0) {
+    depth++;
+    const next: Int8Array[] = [];
+    for (const abstract of frontier) {
+      for (let m = 0; m < SEARCH_MOVES.length; m++) {
+        const fwd = forward[m]!;
+        const om = oriMap[m]!;
+        const child = new Int8Array(2 * size);
+        for (let i = 0; i < size; i++) {
+          const slot = abstract[2 * i]!;
+          child[2 * i] = fwd[slot]!;
+          child[2 * i + 1] = om[slot]![abstract[2 * i + 1]!]!;
+        }
+        const key = packAbstract(child, size);
+        if (!distances.has(key)) {
+          distances.set(key, depth);
+          next.push(child);
+        }
+      }
+    }
+    frontier = next;
+  }
+
+  return { track, distances };
+}
+
+function getPatternDatabases(): PatternDatabase[] {
+  if (!patternDatabases) {
+    patternDatabases = PDB_SUBSETS.map(buildPatternDatabase);
+  }
+  return patternDatabases;
+}
+
+function patternDatabaseKey(track: readonly number[], state: PuzzleState): number {
+  const slotOf = new Array<number>(SLOT_COUNT);
+  for (let i = 0; i < SLOT_COUNT; i++) slotOf[state.pieces[i]!] = i;
+  let key = 0;
+  for (const pieceId of track) {
+    const slot = slotOf[pieceId]!;
+    key = key * 256 + ((slot << 4) | state.orientations[slot]!);
+  }
+  return key;
+}
+
 function search(context: SearchContext): Move[] | undefined {
   if (context.stats.nodesExpanded >= context.maxNodes) {
     return undefined;
@@ -465,15 +578,16 @@ function bidaBwdSearch(
 }
 
 function idaHeuristic(state: PuzzleState): number {
-  // Admissible lower bound combining two independent estimates:
-  //   1. permutationDistance: exact min moves to reach this permutation (ignoring orientations)
-  //   2. ceil(wrongOrientations / 7): each move changes at most 7 corner orientations
-  const permDist = permutationDistance(state.pieces);
-  let wrongOrientations = 0;
-  for (let i = 0; i < state.orientations.length; i++) {
-    if (state.orientations[i] !== 0) wrongOrientations++;
+  // Admissible lower bound: the max of several independent exact distances.
+  //   1. permutationDistance: exact min moves for this permutation (ignoring orientations)
+  //   2. pattern databases: exact moves to solve each tracked piece subset (slot + orientation)
+  // Each is an admissible & consistent lower bound, so their max is too.
+  let estimate = permutationDistance(state.pieces);
+  for (const pdb of getPatternDatabases()) {
+    const distance = pdb.distances.get(patternDatabaseKey(pdb.track, state)) ?? 0;
+    if (distance > estimate) estimate = distance;
   }
-  return Math.max(permDist, Math.ceil(wrongOrientations / 7));
+  return estimate;
 }
 
 // Returns a solution path (array) if found, the minimum f that exceeded the threshold if not, or Infinity if exhausted.
