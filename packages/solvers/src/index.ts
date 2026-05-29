@@ -4,6 +4,7 @@ import {
   createSolvedState,
   invertAlgorithm,
   isSolved,
+  permutationDistance,
   simplifyAlgorithm,
   type Move,
   type MoveAxis,
@@ -482,11 +483,15 @@ function bidaBwdSearch(
 }
 
 function idaHeuristic(state: PuzzleState): number {
-  let wrong = 0;
-  for (let i = 0; i < state.pieces.length; i++) {
-    if (state.pieces[i] !== i || state.orientations[i] !== 0) wrong++;
+  // Admissible lower bound combining two independent estimates:
+  //   1. permutationDistance: exact min moves to reach this permutation (ignoring orientations)
+  //   2. ceil(wrongOrientations / 7): each move changes at most 7 corner orientations
+  const permDist = permutationDistance(state.pieces);
+  let wrongOrientations = 0;
+  for (let i = 0; i < state.orientations.length; i++) {
+    if (state.orientations[i] !== 0) wrongOrientations++;
   }
-  return Math.ceil(wrong / 3);
+  return Math.max(permDist, Math.ceil(wrongOrientations / 7));
 }
 
 // Returns a solution path (array) if found, the minimum f that exceeded the threshold if not, or Infinity if exhausted.
@@ -522,3 +527,4 @@ function idaSearch(
 
   return minF;
 }
+

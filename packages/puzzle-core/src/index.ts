@@ -200,6 +200,18 @@ export function isReachablePiecePermutation(pieces: readonly PieceId[]): boolean
   return reachablePiecePermutationKeys.has(serializePieces(pieces));
 }
 
+let permDistances: Map<number, number> | undefined;
+
+// Returns the minimum moves needed to reach this piece permutation from solved,
+// ignoring orientations. Used as an admissible heuristic lower bound.
+export function permutationDistance(pieces: readonly PieceId[]): number {
+  if (!permDistances) {
+    permDistances = buildPermutationDistances();
+  }
+
+  return permDistances.get(piecePermutationKey(pieces)) ?? 0;
+}
+
 export function formatMove(move: Move): string {
   return `${move.axis}${move.amount === -1 ? "'" : ""}`;
 }
@@ -304,6 +316,45 @@ function buildReachablePiecePermutationKeys(): Set<string> {
   }
 
   return seen;
+}
+
+// Encodes piece permutation as a single number (base-15 positional, fits in JS safe integer).
+function piecePermutationKey(pieces: readonly PieceId[]): number {
+  let key = 0;
+  for (let i = pieces.length - 1; i >= 0; i--) {
+    key = key * 15 + pieces[i]!;
+  }
+  return key;
+}
+
+function buildPermutationDistances(): Map<number, number> {
+  const solved = createSolvedState();
+  const distances = new Map([[piecePermutationKey(solved.pieces), 0]]);
+  let frontier: PuzzleState[] = [solved];
+  let depth = 0;
+
+  while (frontier.length > 0) {
+    depth++;
+    const next: PuzzleState[] = [];
+
+    for (const state of frontier) {
+      for (const axis of MOVE_AXES) {
+        for (const amount of [1, -1] as const) {
+          const moved = applyMove(state, { axis, amount });
+          const key = piecePermutationKey(moved.pieces);
+
+          if (!distances.has(key)) {
+            distances.set(key, depth);
+            next.push(moved);
+          }
+        }
+      }
+    }
+
+    frontier = next;
+  }
+
+  return distances;
 }
 
 function serializePieces(pieces: readonly PieceId[]): string {

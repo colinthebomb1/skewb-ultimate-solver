@@ -26,7 +26,6 @@ The goal is to render a realistic 12-color Skewb Ultimate, animate physically ac
 - [DESIGN.md](./DESIGN.md): architecture, goals, risks, and implementation strategy.
 - [ROADMAP.md](./ROADMAP.md): milestone plan.
 - [NOTATION.md](./NOTATION.md): move notation and physical puzzle labeling conventions.
-- [PHYSICAL_MAPPING.md](./PHYSICAL_MAPPING.md): worksheet for mapping the real puzzle into engine move tables.
 - [docs/REFERENCES.md](./docs/REFERENCES.md): external references used for puzzle facts and notation.
 
 ## Development Workflow

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "hotpaths": "npm run build && node ./dist/hotpaths.js"
+    "bench": "npm run build && node ./dist/hotpaths.js"
   },
   "dependencies": {
     "@skewb-ultimate/puzzle-core": "0.0.0",
