@@ -14,6 +14,7 @@ import type { PuzzleState } from "@skewb-ultimate/puzzle-core";
 export type WorkerRequest = {
   solverId: SolverId;
   state: PuzzleState;
+  maxNodes?: number;
 };
 
 const solvers = {
@@ -27,9 +28,9 @@ const solvers = {
 } as const;
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const { solverId, state } = event.data;
+  const { solverId, state, maxNodes } = event.data;
   const solver = solvers[solverId as keyof typeof solvers] ?? solvers["ida-star"];
-  const result = await solver.solve(state);
+  const result = await solver.solve(state, maxNodes !== undefined ? { maxNodes } : undefined);
   self.postMessage(result);
 };
 

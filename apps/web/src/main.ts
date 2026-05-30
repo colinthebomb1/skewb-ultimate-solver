@@ -134,6 +134,7 @@ app.innerHTML = `
             <option value="depth-limited-dfs">Depth-Limited DFS</option>
           </select>
         </div>
+        <button type="button" id="compare-solvers" class="compare-btn">Compare all solvers</button>
         <div id="solution-stepper" hidden>
           <div class="stepper-sequence" id="stepper-sequence"></div>
           <div class="stepper-nav">
@@ -156,6 +157,15 @@ app.innerHTML = `
             <dt>Nodes</dt><dd id="stat-nodes">—</dd>
           </div>
         </dl>
+        <div class="compare-panel" id="compare-panel" hidden>
+          <table class="compare-table">
+            <thead>
+              <tr><th>Algorithm</th><th>Len</th><th>Time</th><th>Nodes</th></tr>
+            </thead>
+            <tbody id="compare-body"></tbody>
+          </table>
+          <p class="compare-note" id="compare-note"></p>
+        </div>
         <div class="scramble-length-row">
           <label for="scramble-length">Length</label>
           <input type="range" id="scramble-length" min="1" max="25" value="12" />
@@ -284,7 +294,7 @@ let stepperLocked = false;
 
 const solverWorker = new Worker(new URL("./solver.worker.ts", import.meta.url), { type: "module" });
 
-function solveAsync(solverId: SolverId, state: PuzzleState): Promise<SolveResult> {
+function solveAsync(solverId: SolverId, state: PuzzleState, maxNodes?: number): Promise<SolveResult> {
   return new Promise((resolve, reject) => {
     const onMessage = (event: MessageEvent<SolveResult | { type: "ready" }>) => {
       if ((event.data as { type?: string }).type === "ready") return; // startup signal, not a result
@@ -299,7 +309,8 @@ function solveAsync(solverId: SolverId, state: PuzzleState): Promise<SolveResult
     };
     solverWorker.addEventListener("message", onMessage);
     solverWorker.addEventListener("error", onError);
-    const request: WorkerRequest = { solverId, state };
+    const request: WorkerRequest =
+      maxNodes !== undefined ? { solverId, state, maxNodes } : { solverId, state };
     solverWorker.postMessage(request);
   });
 }
@@ -315,6 +326,10 @@ const statAlgorithm = requireElement<HTMLElement>("#stat-algorithm");
 const statSolution = requireElement<HTMLElement>("#stat-solution");
 const statTime = requireElement<HTMLElement>("#stat-time");
 const statNodes = requireElement<HTMLElement>("#stat-nodes");
+const compareButton = requireElement<HTMLButtonElement>("#compare-solvers");
+const comparePanel = requireElement<HTMLElement>("#compare-panel");
+const compareBody = requireElement<HTMLElement>("#compare-body");
+const compareNote = requireElement<HTMLElement>("#compare-note");
 
 scrambleLengthInput.addEventListener("input", () => {
   scrambleLengthValue.textContent = `${scrambleLengthInput.value} moves`;
@@ -362,9 +377,11 @@ solveButton?.addEventListener("click", async () => {
   const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
 
   hideStepper();
+  comparePanel.setAttribute("hidden", "");
   solving = true;
   if (solveButton) solveButton.disabled = true;
   solverSelect.disabled = true;
+  compareButton.disabled = true;
   setInputStatus(`Solving with ${solverName}…`);
 
   const result = await solveAsync(solverId, projectedState);
@@ -372,6 +389,7 @@ solveButton?.addEventListener("click", async () => {
   solving = false;
   if (solveButton) solveButton.disabled = false;
   solverSelect.disabled = false;
+  compareButton.disabled = false;
 
   if (result.status === "solved") {
     const { solution, stats } = result;
@@ -382,6 +400,110 @@ solveButton?.addEventListener("click", async () => {
   }
 });
 
+// ── Compare all solvers on the same scramble ──────────────────────────────
+// Compact names so each row fits on one line in the narrow panel.
+const COMPARE_SOLVERS: { id: SolverId; name: string }[] = [
+  { id: "ida-star", name: "IDA*" },
+  { id: "a-star", name: "A*" },
+  { id: "bidirectional-ida-star", name: "Bidir. IDA*" },
+  { id: "bidirectional-bfs", name: "Bidir. BFS" },
+  { id: "greedy-best-first", name: "Greedy" },
+  { id: "two-phase", name: "Two-Phase" },
+  { id: "depth-limited-dfs", name: "DFS" },
+];
+const COMPARE_MAX_NODES = 2_000_000;
+
+function formatMs(ms: number): string {
+  return ms < 1 ? "<1 ms" : `${Math.round(ms).toLocaleString()} ms`;
+}
+
+compareButton.addEventListener("click", async () => {
+  if (solving || !solverReady) return;
+
+  const pendingMoves = [
+    ...(activeTurn ? [activeTurn.move] : []),
+    ...turnQueue.map((turn) => turn.move),
+  ];
+  const projectedState = applyAlgorithm(engineState, pendingMoves);
+
+  if (isSolved(projectedState)) {
+    setInputStatus("Already solved.");
+    return;
+  }
+
+  hideStepper();
+  hideStats();
+  solving = true;
+  if (solveButton) solveButton.disabled = true;
+  solverSelect.disabled = true;
+  compareButton.disabled = true;
+  setInputStatus("Comparing solvers…");
+
+  comparePanel.removeAttribute("hidden");
+  compareNote.textContent = "";
+  compareBody.replaceChildren();
+  const cells = new Map<SolverId, { len: HTMLElement; time: HTMLElement; nodes: HTMLElement; row: HTMLElement }>();
+  for (const { id, name } of COMPARE_SOLVERS) {
+    const row = document.createElement("tr");
+    row.innerHTML =
+      `<td class="c-name">${name}</td>` +
+      `<td class="c-len">·</td><td class="c-time">·</td><td class="c-nodes">·</td>`;
+    compareBody.appendChild(row);
+    cells.set(id, {
+      len: row.querySelector(".c-len")!,
+      time: row.querySelector(".c-time")!,
+      nodes: row.querySelector(".c-nodes")!,
+      row,
+    });
+  }
+
+  const solved: { id: SolverId; len: number; ms: number; nodes: number }[] = [];
+  for (const { id } of COMPARE_SOLVERS) {
+    const cell = cells.get(id)!;
+    cell.row.classList.add("c-running");
+    cell.len.textContent = "…";
+    let result: SolveResult | undefined;
+    try {
+      result = await solveAsync(id, projectedState, COMPARE_MAX_NODES);
+    } catch {
+      result = undefined;
+    }
+    cell.row.classList.remove("c-running");
+    if (result && result.status === "solved") {
+      cell.len.textContent = String(result.solution.length);
+      cell.time.textContent = formatMs(result.stats.elapsedMs);
+      cell.nodes.textContent = result.stats.nodesExpanded.toLocaleString();
+      solved.push({ id, len: result.solution.length, ms: result.stats.elapsedMs, nodes: result.stats.nodesExpanded });
+    } else {
+      cell.row.classList.add("c-incomplete");
+      cell.len.textContent = "—";
+      cell.time.textContent = result ? formatMs(result.stats.elapsedMs) : "—";
+      cell.nodes.textContent = result ? result.stats.nodesExpanded.toLocaleString() : "—";
+    }
+  }
+
+  if (solved.length > 0) {
+    const minLen = Math.min(...solved.map((r) => r.len));
+    const minMs = Math.min(...solved.map((r) => r.ms));
+    const minNodes = Math.min(...solved.map((r) => r.nodes));
+    for (const r of solved) {
+      const cell = cells.get(r.id)!;
+      if (r.len === minLen) cell.len.classList.add("c-best");
+      if (r.ms === minMs) cell.time.classList.add("c-best");
+      if (r.nodes === minNodes) cell.nodes.classList.add("c-best");
+    }
+    compareNote.textContent = `Optimal is ${minLen} moves. Highlighted = best in column.`;
+  } else {
+    compareNote.textContent = "No solver finished within the node budget.";
+  }
+
+  solving = false;
+  if (solveButton) solveButton.disabled = false;
+  solverSelect.disabled = false;
+  compareButton.disabled = false;
+  setInputStatus("Ready");
+});
+
 // The worker builds its heuristic tables (~2.5s) on startup and posts a "ready"
 // message when done. Keep Solve disabled until then so an early click doesn't
 // appear to hang while that build runs.
@@ -389,10 +511,14 @@ let solverReady = false;
 function markSolverReady() {
   if (solverReady) return;
   solverReady = true;
-  if (solveButton && !solving) solveButton.disabled = false;
+  if (!solving) {
+    if (solveButton) solveButton.disabled = false;
+    compareButton.disabled = false;
+  }
   if (inputStatus.textContent === "Preparing solver…") setInputStatus("Ready");
 }
 if (solveButton) solveButton.disabled = true;
+compareButton.disabled = true;
 setInputStatus("Preparing solver…");
 solverWorker.addEventListener("message", (event: MessageEvent<{ type?: string }>) => {
   if (event.data?.type === "ready") markSolverReady();
@@ -403,6 +529,7 @@ setTimeout(markSolverReady, 8000);
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   hideStepper();
   hideStats();
+  comparePanel.setAttribute("hidden", "");
   resetVisualState();
   clearHashScramble();
   setInputStatus("Reset puzzle.");
@@ -493,6 +620,7 @@ function showStats(algorithm: string, moves: number, elapsedMs: number, nodes: n
   statTime.textContent = elapsedMs < 1 ? "<1 ms" : `${Math.round(elapsedMs).toLocaleString()} ms`;
   statNodes.textContent = nodes.toLocaleString();
   solveStats.removeAttribute("hidden");
+  comparePanel.setAttribute("hidden", "");
 }
 
 function hideStats() {
