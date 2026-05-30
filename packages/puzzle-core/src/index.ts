@@ -156,6 +156,9 @@ export function invertAlgorithm(moves: readonly Move[]): Move[] {
 }
 
 export function applyMove(state: PuzzleState, move: Move): PuzzleState {
+  // The 14-element copies below are unrolled deliberately: applyMove is the
+  // hottest function in the solvers, and the explicit literal beats slice()/
+  // spread here. The 14 is the fixed slot count (SLOT_IDS.length).
   const pieces = state.pieces;
   const orientations = state.orientations;
   const nextPieces = [
@@ -259,6 +262,8 @@ export function parseMove(token: string): Move {
     return { axis, amount: -1 };
   }
 
+  // Each axis is a 3-fold rotation, so a double turn equals one inverse turn
+  // (X2 == X'). Accepted for convenience; the canonical form uses ' instead.
   if (suffix === "2") {
     return { axis, amount: -1 };
   }

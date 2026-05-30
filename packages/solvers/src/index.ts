@@ -18,7 +18,7 @@ export type SolverOptions = {
 };
 
 export type SolveResult = {
-  status: "solved" | "failed" | "not-implemented";
+  status: "solved" | "failed";
   solution: Move[];
   stats: {
     elapsedMs: number;
@@ -37,7 +37,7 @@ export type SolverId =
   | "two-phase";
 
 export type Solver = {
-  id: string;
+  id: SolverId;
   name: string;
   solve(state: PuzzleState, options?: SolverOptions): Promise<SolveResult>;
 };
@@ -146,20 +146,6 @@ export function bidirectionalBfsSolver(): Solver {
       let fwdFrontier = [0];
       let bwdFrontier = [0];
 
-      function pathToBfsNode(nodes: BfsNode[], nodeIndex: number): Move[] {
-        const path: Move[] = [];
-        let current = nodeIndex;
-
-        while (current !== -1) {
-          const node = nodes[current]!;
-          if (node.move) path.push(node.move);
-          current = node.parent;
-        }
-
-        path.reverse();
-        return path;
-      }
-
       function expandLevel(
         frontier: number[],
         nodes: BfsNode[],
@@ -199,8 +185,8 @@ export function bidirectionalBfsSolver(): Solver {
 
             const otherIndex = other.get(nextKey);
             if (otherIndex !== undefined) {
-              const ownPath = pathToBfsNode(nodes, nextIndex);
-              const otherPath = pathToBfsNode(otherNodes, otherIndex);
+              const ownPath = reconstructPath(nodes, nextIndex);
+              const otherPath = reconstructPath(otherNodes, otherIndex);
               const fwdPath = forward ? ownPath : otherPath;
               const bwdPath = forward ? otherPath : ownPath;
               return simplifyAlgorithm([...fwdPath, ...invertAlgorithm(bwdPath)]);
@@ -355,13 +341,15 @@ function getPatternDatabases(): PatternDatabase[] {
   return patternDatabases;
 }
 
-function patternDatabaseKey(track: readonly number[], state: PuzzleState): number {
-  const slotOf = new Array<number>(SLOT_COUNT);
-  for (let i = 0; i < SLOT_COUNT; i++) slotOf[state.pieces[i]!] = i;
+function patternDatabaseKey(
+  track: readonly number[],
+  slotOf: readonly number[],
+  orientations: readonly number[],
+): number {
   let key = 0;
   for (const pieceId of track) {
     const slot = slotOf[pieceId]!;
-    key = key * 256 + ((slot << 4) | state.orientations[slot]!);
+    key = key * 256 + ((slot << 4) | orientations[slot]!);
   }
   return key;
 }
@@ -612,8 +600,12 @@ function idaHeuristic(state: PuzzleState): number {
   //   2. pattern databases: exact moves to solve each tracked piece subset (slot + orientation)
   // Each is an admissible & consistent lower bound, so their max is too.
   let estimate = permutationDistance(state.pieces);
+  // Inverse permutation (slotOf[pieceId] = slot), computed once and shared by
+  // every pattern-database lookup for this node.
+  const slotOf = new Array<number>(SLOT_COUNT);
+  for (let i = 0; i < SLOT_COUNT; i++) slotOf[state.pieces[i]!] = i;
   for (const pdb of getPatternDatabases()) {
-    const distance = pdb.distances.get(patternDatabaseKey(pdb.track, state)) ?? 0;
+    const distance = pdb.distances.get(patternDatabaseKey(pdb.track, slotOf, state.orientations)) ?? 0;
     if (distance > estimate) estimate = distance;
   }
   return estimate;
@@ -719,7 +711,12 @@ class MinHeap {
   }
 }
 
-function reconstructPath(nodes: SearchNode[], index: number): Move[] {
+// Walk parent pointers back to the root, collecting moves. Works for any node
+// array whose entries carry a parent index and the move that produced them.
+function reconstructPath(
+  nodes: readonly { parent: number; move: Move | undefined }[],
+  index: number,
+): Move[] {
   const path: Move[] = [];
   let current = index;
   while (current !== -1) {

@@ -131,7 +131,7 @@ function runHotPathBench() {
 // ─── Solver benchmark ─────────────────────────────────────────────────────────
 
 type TrialResult = {
-  status: "solved" | "failed" | "not-implemented";
+  status: "solved" | "failed";
   nodes: number;
   ms: number;
   solutionLength: number;
