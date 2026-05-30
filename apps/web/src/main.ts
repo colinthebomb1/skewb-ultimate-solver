@@ -126,8 +126,11 @@ app.innerHTML = `
           <button type="button" data-solve>Solve</button>
           <select id="solver-select" aria-label="Solver algorithm">
             <option value="ida-star">IDA*</option>
+            <option value="a-star">A*</option>
             <option value="bidirectional-ida-star">Bidirectional IDA*</option>
             <option value="bidirectional-bfs">Bidirectional BFS</option>
+            <option value="greedy-best-first">Greedy Best-First</option>
+            <option value="two-phase">Two-Phase</option>
             <option value="depth-limited-dfs">Depth-Limited DFS</option>
           </select>
         </div>

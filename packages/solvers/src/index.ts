@@ -1,5 +1,6 @@
 import {
   MOVE_AXES,
+  applyAlgorithm,
   applyMove,
   createSolvedState,
   invertAlgorithm,
@@ -26,7 +27,14 @@ export type SolveResult = {
   };
 };
 
-export type SolverId = "depth-limited-dfs" | "bidirectional-bfs" | "ida-star" | "bidirectional-ida-star";
+export type SolverId =
+  | "depth-limited-dfs"
+  | "bidirectional-bfs"
+  | "ida-star"
+  | "bidirectional-ida-star"
+  | "a-star"
+  | "greedy-best-first"
+  | "two-phase";
 
 export type Solver = {
   id: string;
@@ -446,27 +454,31 @@ export function idaStarSolver(): Solver {
       const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
       const elapsed = () => performance.now() - startedAt;
 
-      if (isSolved(startState)) {
-        return { status: "solved", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
-      }
-
-      let threshold = idaHeuristic(startState);
-
-      while (true) {
-        stats.maxDepthReached = threshold;
-        const result = idaSearch(startState, 0, threshold, [], undefined, stats, maxNodes);
-
-        if (Array.isArray(result)) {
-          return { status: "solved", solution: result, stats: { ...stats, elapsedMs: elapsed() } };
-        }
-
-        if (result === Infinity) break;
-        threshold = result;
-      }
-
-      return { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      const solution = runIdaStar(startState, stats, maxNodes);
+      return solution
+        ? { status: "solved", solution, stats: { ...stats, elapsedMs: elapsed() } }
+        : { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
     },
   };
+}
+
+// Shared IDA* driver: iterative deepening on the pattern-database heuristic.
+// Returns the optimal solution, or undefined if exhausted / node-capped.
+function runIdaStar(
+  start: PuzzleState,
+  stats: SolveResult["stats"],
+  maxNodes: number,
+): Move[] | undefined {
+  if (isSolved(start)) return [];
+
+  let threshold = idaHeuristic(start);
+  while (true) {
+    stats.maxDepthReached = Math.max(stats.maxDepthReached, threshold);
+    const result = idaSearch(start, 0, threshold, [], undefined, stats, maxNodes);
+    if (Array.isArray(result)) return result;
+    if (result === Infinity) return undefined;
+    threshold = result;
+  }
 }
 
 export function bidirectionalIdaStarSolver(): Solver {
@@ -629,5 +641,238 @@ function idaSearch(
   }
 
   return minF;
+}
+
+// ---- Best-first search (A* and greedy best-first) -------------------------
+// A binary min-heap of (priority, nodeIndex). Nodes live in a flat array with
+// parent pointers so a solution is reconstructed without storing a path per
+// node. The priority function selects the strategy: A* uses g + h, greedy
+// best-first uses h alone.
+
+type SearchNode = {
+  state: PuzzleState;
+  g: number;
+  parent: number;
+  move: Move | undefined;
+  lastAxis: MoveAxis | undefined;
+  key: string;
+};
+
+class MinHeap {
+  private priorities: number[] = [];
+  private values: number[] = [];
+
+  get size(): number {
+    return this.values.length;
+  }
+
+  push(priority: number, value: number): void {
+    const p = this.priorities;
+    const v = this.values;
+    let i = p.length;
+    p.push(priority);
+    v.push(value);
+    while (i > 0) {
+      const parent = (i - 1) >> 1;
+      if (p[parent]! <= p[i]!) break;
+      [p[parent], p[i]] = [p[i]!, p[parent]!];
+      [v[parent], v[i]] = [v[i]!, v[parent]!];
+      i = parent;
+    }
+  }
+
+  pop(): number | undefined {
+    const p = this.priorities;
+    const v = this.values;
+    if (v.length === 0) return undefined;
+    const top = v[0]!;
+    const lastP = p.pop()!;
+    const lastV = v.pop()!;
+    if (v.length > 0) {
+      p[0] = lastP;
+      v[0] = lastV;
+      const n = v.length;
+      let i = 0;
+      while (true) {
+        const left = 2 * i + 1;
+        const right = 2 * i + 2;
+        let smallest = i;
+        if (left < n && p[left]! < p[smallest]!) smallest = left;
+        if (right < n && p[right]! < p[smallest]!) smallest = right;
+        if (smallest === i) break;
+        [p[i], p[smallest]] = [p[smallest]!, p[i]!];
+        [v[i], v[smallest]] = [v[smallest]!, v[i]!];
+        i = smallest;
+      }
+    }
+    return top;
+  }
+}
+
+function reconstructPath(nodes: SearchNode[], index: number): Move[] {
+  const path: Move[] = [];
+  let current = index;
+  while (current !== -1) {
+    const node = nodes[current]!;
+    if (node.move) path.push(node.move);
+    current = node.parent;
+  }
+  path.reverse();
+  return path;
+}
+
+function bestFirstSearch(
+  start: PuzzleState,
+  priorityOf: (g: number, h: number) => number,
+  stats: SolveResult["stats"],
+  maxNodes: number,
+): Move[] | undefined {
+  const startKey = serializeState(start);
+  const nodes: SearchNode[] = [
+    { state: start, g: 0, parent: -1, move: undefined, lastAxis: undefined, key: startKey },
+  ];
+  const bestG = new Map<string, number>([[startKey, 0]]);
+  const heap = new MinHeap();
+  heap.push(priorityOf(0, idaHeuristic(start)), 0);
+
+  while (heap.size > 0) {
+    const index = heap.pop()!;
+    const node = nodes[index]!;
+
+    if (isSolved(node.state)) {
+      stats.maxDepthReached = Math.max(stats.maxDepthReached, node.g);
+      return reconstructPath(nodes, index);
+    }
+    // A cheaper path to this state may have been queued after this entry.
+    if (node.g > (bestG.get(node.key) ?? Infinity)) continue;
+    if (stats.nodesExpanded >= maxNodes) return undefined;
+    stats.nodesExpanded++;
+
+    for (const move of SEARCH_MOVES) {
+      if (move.axis === node.lastAxis) continue;
+      const nextState = applyMove(node.state, move);
+      const nextG = node.g + 1;
+      const key = serializeState(nextState);
+      if (nextG >= (bestG.get(key) ?? Infinity)) continue;
+      bestG.set(key, nextG);
+      const childIndex = nodes.length;
+      nodes.push({ state: nextState, g: nextG, parent: index, move, lastAxis: move.axis, key });
+      heap.push(priorityOf(nextG, idaHeuristic(nextState)), childIndex);
+    }
+  }
+  return undefined;
+}
+
+export function aStarSolver(): Solver {
+  return {
+    id: "a-star",
+    name: "A*",
+    async solve(startState, options = {}) {
+      const startedAt = performance.now();
+      const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
+      const maxNodes = options.maxNodes ?? 5_000_000;
+      // f = g + h with a consistent heuristic: optimal, and each state is
+      // expanded once (unlike IDA*, which re-expands across iterations).
+      const solution = bestFirstSearch(startState, (g, h) => g + h, stats, maxNodes);
+      const elapsedMs = performance.now() - startedAt;
+      return solution
+        ? { status: "solved", solution, stats: { ...stats, elapsedMs } }
+        : { status: "failed", solution: [], stats: { ...stats, elapsedMs } };
+    },
+  };
+}
+
+export function greedyBestFirstSolver(): Solver {
+  return {
+    id: "greedy-best-first",
+    name: "Greedy Best-First",
+    async solve(startState, options = {}) {
+      const startedAt = performance.now();
+      const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
+      const maxNodes = options.maxNodes ?? 5_000_000;
+      // Order by the heuristic alone: dives at the goal quickly, but the
+      // resulting solution is valid rather than shortest.
+      const solution = bestFirstSearch(startState, (_g, h) => h, stats, maxNodes);
+      const elapsedMs = performance.now() - startedAt;
+      return solution
+        ? { status: "solved", solution, stats: { ...stats, elapsedMs } }
+        : { status: "failed", solution: [], stats: { ...stats, elapsedMs } };
+    },
+  };
+}
+
+// Phase 1 of the two-phase solver: bring every piece to its home slot (solve
+// the permutation), ignoring orientation. permutationDistance is exact for
+// this goal, so it's a tiny search — the permutation diameter is only 6.
+function solvePermutationPhase(
+  start: PuzzleState,
+  stats: SolveResult["stats"],
+  maxNodes: number,
+): Move[] | undefined {
+  if (permutationDistance(start.pieces) === 0) return [];
+
+  let threshold = permutationDistance(start.pieces);
+  const path: Move[] = [];
+
+  function dfs(state: PuzzleState, g: number, previousAxis: MoveAxis | undefined): Move[] | number {
+    const f = g + permutationDistance(state.pieces);
+    if (f > threshold) return f;
+    if (permutationDistance(state.pieces) === 0) return [...path];
+
+    let minF = Infinity;
+    for (const move of SEARCH_MOVES) {
+      if (move.axis === previousAxis) continue;
+      if (stats.nodesExpanded >= maxNodes) return minF;
+      stats.nodesExpanded++;
+      path.push(move);
+      const result = dfs(applyMove(state, move), g + 1, move.axis);
+      path.pop();
+      if (Array.isArray(result)) return result;
+      if (result < minF) minF = result;
+    }
+    return minF;
+  }
+
+  while (true) {
+    const result = dfs(start, 0, undefined);
+    if (Array.isArray(result)) return result;
+    if (result === Infinity) return undefined;
+    threshold = result;
+  }
+}
+
+export function twoPhaseSolver(): Solver {
+  return {
+    id: "two-phase",
+    name: "Two-Phase",
+    async solve(startState, options = {}) {
+      const startedAt = performance.now();
+      const stats = { elapsedMs: 0, nodesExpanded: 0, maxDepthReached: 0 };
+      const maxNodes = options.maxNodes ?? Infinity;
+      const elapsed = () => performance.now() - startedAt;
+
+      if (isSolved(startState)) {
+        return { status: "solved", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      }
+
+      // Phase 1: solve the permutation. Phase 2: solve the residual (mostly
+      // orientation) optimally with the pattern-database heuristic. The two
+      // phases aren't coordinated, so the combined solution is valid but
+      // generally longer than the single-phase optimum.
+      const phase1 = solvePermutationPhase(startState, stats, maxNodes);
+      if (!phase1) {
+        return { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      }
+      const midState = applyAlgorithm(startState, phase1);
+      const phase2 = runIdaStar(midState, stats, maxNodes);
+      if (!phase2) {
+        return { status: "failed", solution: [], stats: { ...stats, elapsedMs: elapsed() } };
+      }
+
+      const solution = simplifyAlgorithm([...phase1, ...phase2]);
+      stats.maxDepthReached = Math.max(stats.maxDepthReached, solution.length);
+      return { status: "solved", solution, stats: { ...stats, elapsedMs: elapsed() } };
+    },
+  };
 }
 

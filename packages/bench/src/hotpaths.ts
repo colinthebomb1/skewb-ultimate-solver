@@ -10,6 +10,7 @@ import {
   type PuzzleState,
 } from "@skewb-ultimate/puzzle-core";
 import {
+  aStarSolver,
   bidirectionalBfsSolver,
   bidirectionalIdaStarSolver,
   idaStarSolver,
@@ -231,6 +232,7 @@ async function main() {
   console.log("=".repeat(TOTAL_WIDTH));
 
   await runSolverBench(idaStarSolver());
+  await runSolverBench(aStarSolver());
   await runSolverBench(bidirectionalIdaStarSolver());
   await runSolverBench(bidirectionalBfsSolver());
 }

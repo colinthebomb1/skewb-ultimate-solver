@@ -1,8 +1,11 @@
 import {
+  aStarSolver,
   bidirectionalBfsSolver,
   bidirectionalIdaStarSolver,
   depthLimitedDfsSolver,
+  greedyBestFirstSolver,
   idaStarSolver,
+  twoPhaseSolver,
   warmUpHeuristics,
   type SolverId,
 } from "@skewb-ultimate/solvers";
@@ -14,15 +17,18 @@ export type WorkerRequest = {
 };
 
 const solvers = {
-  "bidirectional-bfs": bidirectionalBfsSolver(),
-  "bidirectional-ida-star": bidirectionalIdaStarSolver(),
   "ida-star": idaStarSolver(),
+  "a-star": aStarSolver(),
+  "greedy-best-first": greedyBestFirstSolver(),
+  "two-phase": twoPhaseSolver(),
+  "bidirectional-ida-star": bidirectionalIdaStarSolver(),
+  "bidirectional-bfs": bidirectionalBfsSolver(),
   "depth-limited-dfs": depthLimitedDfsSolver(),
 } as const;
 
 self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   const { solverId, state } = event.data;
-  const solver = solvers[solverId as keyof typeof solvers] ?? solvers["bidirectional-ida-star"];
+  const solver = solvers[solverId as keyof typeof solvers] ?? solvers["ida-star"];
   const result = await solver.solve(state);
   self.postMessage(result);
 };

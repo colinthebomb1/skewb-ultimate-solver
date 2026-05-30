@@ -5,7 +5,13 @@ import {
   isSolved,
   parseAlgorithm,
 } from "@skewb-ultimate/puzzle-core";
-import { bidirectionalBfsSolver, depthLimitedDfsSolver } from "../src";
+import {
+  aStarSolver,
+  bidirectionalBfsSolver,
+  depthLimitedDfsSolver,
+  greedyBestFirstSolver,
+  twoPhaseSolver,
+} from "../src";
 
 describe("solver interface", () => {
   it("solves an already solved state", async () => {
@@ -99,5 +105,41 @@ describe("bidirectional BFS solver", () => {
 
     expect(result.status).toBe("failed");
     expect(result.solution).toEqual([]);
+  });
+});
+
+describe("heuristic and two-phase solvers", () => {
+  const scramble = parseAlgorithm("L R' D B R' L D'");
+  const scrambled = applyAlgorithm(createSolvedState(), scramble);
+
+  it("A* returns a valid, optimal solution", async () => {
+    const optimal = await bidirectionalBfsSolver().solve(scrambled);
+    const result = await aStarSolver().solve(scrambled);
+
+    expect(result.status).toBe("solved");
+    expect(isSolved(applyAlgorithm(scrambled, result.solution))).toBe(true);
+    expect(result.solution.length).toBe(optimal.solution.length);
+  });
+
+  it("greedy best-first returns a valid (not necessarily optimal) solution", async () => {
+    const result = await greedyBestFirstSolver().solve(scrambled);
+
+    expect(result.status).toBe("solved");
+    expect(isSolved(applyAlgorithm(scrambled, result.solution))).toBe(true);
+  });
+
+  it("two-phase returns a valid solution", async () => {
+    const result = await twoPhaseSolver().solve(scrambled);
+
+    expect(result.status).toBe("solved");
+    expect(isSolved(applyAlgorithm(scrambled, result.solution))).toBe(true);
+  });
+
+  it("solves an already solved state with an empty solution", async () => {
+    for (const makeSolver of [aStarSolver, greedyBestFirstSolver, twoPhaseSolver]) {
+      const result = await makeSolver().solve(createSolvedState());
+      expect(result.status).toBe("solved");
+      expect(result.solution).toEqual([]);
+    }
   });
 });
