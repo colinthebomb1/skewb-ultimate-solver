@@ -288,13 +288,24 @@ function normalizeTurnAmount(amount: number): MoveAmount | 0 {
   return normalized === 1 ? 1 : -1;
 }
 
-// Encodes piece permutation as a single number (base-15 positional, fits in JS safe integer).
+// Encodes a full piece permutation as a single exact integer key.
+//
+// Only the first 13 pieces are packed, each as a 4-bit nibble (13 * 4 = 52 bits,
+// which is within Number.MAX_SAFE_INTEGER, 2^53). In any full permutation of the
+// 14 slots the 14th piece is fixed by the other 13, so dropping it keeps the key
+// injective. JS bit ops are 32-bit, so the high nibbles are combined with a
+// multiply rather than a shift past bit 31.
+//
+// (The previous base-15 positional key over all 14 digits reached ~2.7e16, well
+// past 2^53, so its keys were rounded doubles that only happened not to collide.)
 function piecePermutationKey(pieces: readonly PieceId[]): number {
-  let key = 0;
-  for (let i = pieces.length - 1; i >= 0; i--) {
-    key = key * 15 + pieces[i]!;
-  }
-  return key;
+  const lo =
+    pieces[0]! | (pieces[1]! << 4) | (pieces[2]! << 8) | (pieces[3]! << 12) |
+    (pieces[4]! << 16) | (pieces[5]! << 20) | (pieces[6]! << 24);
+  const hi =
+    pieces[7]! | (pieces[8]! << 4) | (pieces[9]! << 8) | (pieces[10]! << 12) |
+    (pieces[11]! << 16) | (pieces[12]! << 20);
+  return hi * 0x10000000 + lo; // hi << 28, done with a multiply (28-bit lo)
 }
 
 function buildPermutationDistances(): Map<number, number> {
