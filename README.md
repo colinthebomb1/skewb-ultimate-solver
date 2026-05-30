@@ -11,6 +11,7 @@ A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.ja
 - Renders the puzzle as individual movable pieces with accurate dodecahedron geometry
 - Animates physical 120° turns around the four fixed-corner axes
 - Solves scrambles using multiple algorithms and animates the solution step by step
+- Races every solver on the same scramble in the "Solver Lab" and explains how each one works
 - Lets you enter your real physical cube's colors and solve it directly ("My Cube" mode)
 - Shares scrambles via URL hash so you can send a specific position to someone
 
@@ -22,16 +23,23 @@ A browser-based 3D visualizer and solver for the [Skewb Ultimate](https://www.ja
 
 ![My Cube paint mode](docs/assets/paint-mode.png)
 
+**Solver Lab** — race every algorithm on the same scramble, compare length, nodes, and time side by side, then click any solver to read how it works and replay its solution move by move
+
+![Solver Lab comparison view](docs/assets/solver-lab.png)
+
 ## Algorithms
 
-Four solvers are available from the dropdown, each with different tradeoffs:
+Seven solvers are available from the dropdown, and the Solver Lab runs them all on one scramble for a side-by-side comparison. Each makes a different tradeoff between speed, memory, and solution length:
 
-| Algorithm | Approach | Good for |
+| Algorithm | Approach | Notes |
 |---|---|---|
-| IDA\* | Iterative deepening with the pattern-database heuristic | **Default** — fastest solver here; optimal solutions |
-| Bidirectional IDA\* | Split the depth budget and match forward/backward frontiers | Faster than single IDA\* only when the heuristic is weak |
-| Bidirectional BFS | Expand forward from start and backward from goal, meet in the middle | Short scrambles, guaranteed shortest solution, no heuristic |
-| Depth-Limited DFS | Plain DFS with a depth cap | Reference baseline |
+| Iterative-Deepening A\* | Iterative deepening guided by the pattern-database heuristic | **Default.** Fastest here, returns a shortest solution, uses almost no memory |
+| A\* | Best-first on moves-so-far plus heuristic | Returns a shortest solution, but holds the whole frontier in memory |
+| Bidirectional IDA\* | Split the depth budget and match forward/backward frontiers | Shortest solution. Helps only when the heuristic is weak |
+| Bidirectional BFS | Expand from both ends until the frontiers meet | Shortest solution, no heuristic. Memory grows fast, so it can run out on deep scrambles |
+| Greedy Best-First | Follow the heuristic alone, ignore path cost | Very fast but short-sighted, solutions run far longer than necessary |
+| Two-Phase | Reduce to a simpler subgroup, then finish inside it | Kociemba-style. Fast and near-optimal, not guaranteed shortest |
+| Depth-Limited DFS | Plain DFS with a depth cap | Reference baseline, cannot reach the depth real scrambles need |
 
 The IDA\* heuristic is the max of several independent admissible lower bounds: an exact piece-permutation distance (BFS over permutations, ignoring orientations) and two **pattern databases**. Each pattern database fixes a six-piece subset and stores the exact number of moves to bring just those pieces home — both position *and* orientation — found by BFS over the abstracted state space. Because a move's effect on a piece depends only on the slot it occupies, the subset projection is a valid abstraction, so every stored distance is an admissible and consistent lower bound, and so is their max.
 
@@ -41,7 +49,7 @@ This is also why plain IDA\* is the default rather than the bidirectional varian
 
 Solvers run in a Web Worker so the UI stays responsive during search. The pattern databases (~300K entries) are built once, a few seconds of work that happens off the main thread as the worker starts, so the first solve stays fast.
 
-All solvers return optimal (shortest) solutions. Solving 100,000 random positions to optimality, the mean *shortest* solution length is **10.35 moves** — most positions need 10 or 11 — while the hardest possible positions still solve in the 14-move maximum. (Uniform sampling characterises typical difficulty but won't surface the rare 14-move antipodes; the diameter of 14 comes from [Jaap's full analysis](https://www.jaapsch.net/puzzles/ultimate.htm).)
+The four heuristic and breadth-first solvers (Iterative-Deepening A\*, A\*, and both bidirectional searches) return optimal (shortest) solutions. Greedy Best-First and Two-Phase trade optimality for speed, and Depth-Limited DFS is a baseline that only solves within its depth cap. Solving 100,000 random positions to optimality, the mean *shortest* solution length is **10.35 moves** — most positions need 10 or 11 — while the hardest possible positions still solve in the 14-move maximum. (Uniform sampling characterises typical difficulty but won't surface the rare 14-move antipodes; the diameter of 14 comes from [Jaap's full analysis](https://www.jaapsch.net/puzzles/ultimate.htm).)
 
 ## Engine
 
