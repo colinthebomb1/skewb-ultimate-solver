@@ -72,6 +72,21 @@ const faceColors = [
   0x1040a8, // face 10: deep ocean blue
   0x006e40, // face 11: dark green
 ];
+// Human-readable names for each faceColors entry, used in the paint UI.
+const colorNames = [
+  "Teal",
+  "Yellow",
+  "Hot pink",
+  "Dark gold",
+  "White",
+  "Lime",
+  "Sky blue",
+  "Purple",
+  "Light purple",
+  "Red",
+  "Deep ocean blue",
+  "Dark green",
+];
 const DEFAULT_PAINT_COLOR_INDEX = 4; // white
 
 // stickerKey = `${slotIndex}:${faceIndex}` — unique per sticker in solved state
@@ -80,6 +95,7 @@ const stickerMaterials = new Map<string, THREE.MeshStandardMaterial>();
 const slotFaceNormals: (Map<number, THREE.Vector3> | undefined)[] = [];
 
 let paintMode = false;
+let compareMode = false;
 let paintColorIndex = 0;
 const userStickerColors = new Map<string, number>(); // stickerKey → color index
 
@@ -110,12 +126,14 @@ if (!app) {
 app.innerHTML = `
   <main class="shell">
     <section class="viewport" aria-label="Skewb Ultimate preview">
-      <button type="button" id="paint-toggle" class="viewport-overlay-btn">My Cube</button>
+      <div class="viewport-overlay">
+        <button type="button" id="paint-toggle" class="viewport-overlay-btn">My Cube</button>
+        <button type="button" id="compare-toggle" class="viewport-overlay-btn">Solver Lab</button>
+      </div>
     </section>
     <aside class="panel">
       <div id="normal-panel">
         <header class="solver-header">
-          <p class="eyebrow">Solver</p>
           <h1>Skewb Ultimate Solver</h1>
         </header>
         <div class="action-row primary-actions">
@@ -134,7 +152,6 @@ app.innerHTML = `
             <option value="depth-limited-dfs">Depth-Limited DFS</option>
           </select>
         </div>
-        <button type="button" id="compare-solvers" class="compare-btn">Compare all solvers</button>
         <div id="solution-stepper" hidden>
           <div class="stepper-sequence" id="stepper-sequence"></div>
           <div class="stepper-nav">
@@ -145,27 +162,18 @@ app.innerHTML = `
         </div>
         <dl class="solve-stats" hidden>
           <div class="stat-row">
-            <dt>Algorithm</dt><dd id="stat-algorithm">—</dd>
+            <dt>Algorithm</dt><dd id="stat-algorithm">-</dd>
           </div>
           <div class="stat-row">
-            <dt>Solution</dt><dd id="stat-solution">—</dd>
+            <dt>Solution</dt><dd id="stat-solution">-</dd>
           </div>
           <div class="stat-row">
-            <dt>Time</dt><dd id="stat-time">—</dd>
+            <dt>Time</dt><dd id="stat-time">-</dd>
           </div>
           <div class="stat-row">
-            <dt>Nodes</dt><dd id="stat-nodes">—</dd>
+            <dt>Nodes</dt><dd id="stat-nodes">-</dd>
           </div>
         </dl>
-        <div class="compare-panel" id="compare-panel" hidden>
-          <table class="compare-table">
-            <thead>
-              <tr><th>Algorithm</th><th>Len</th><th>Time</th><th>Nodes</th></tr>
-            </thead>
-            <tbody id="compare-body"></tbody>
-          </table>
-          <p class="compare-note" id="compare-note"></p>
-        </div>
         <div class="scramble-length-row">
           <label for="scramble-length">Length</label>
           <input type="range" id="scramble-length" min="1" max="25" value="12" />
@@ -215,7 +223,7 @@ app.innerHTML = `
           <div class="paint-readiness-line">
             <span id="paint-color-counts">0 / 12 colors complete</span>
           </div>
-          <div id="paint-color-status" class="paint-color-status">Selected color: 0 / 4 stickers</div>
+          <div id="paint-color-status" class="paint-color-status">Teal: 0 / 4 stickers painted</div>
         </div>
         <div class="paint-actions" style="grid-template-columns: repeat(3, minmax(0, 1fr))">
           <button type="button" id="solve-painted">Solve This</button>
@@ -227,6 +235,22 @@ app.innerHTML = `
           <button type="button" id="import-paint-state" style="background:#f8fafc;color:#4b5563;font-size:12px;min-height:36px">Import State</button>
         </div>
         <p id="input-status-paint" class="input-status"></p>
+      </div>
+      <div id="compare-mode-panel" hidden>
+        <header class="solver-header">
+          <p class="eyebrow">Solver Lab</p>
+          <h1>Compare Solvers</h1>
+        </header>
+        <p class="compare-intro">Tick the algorithms to race, scramble, then run them on the same state. Click any solver to read how it works and replay its solution on the puzzle.</p>
+        <div class="compare-scramble-row">
+          <button type="button" id="compare-scramble">Scramble</button>
+          <input type="range" id="compare-scramble-length" min="1" max="25" value="12" />
+          <span id="compare-scramble-length-value">12 moves</span>
+        </div>
+        <button type="button" id="compare-run" class="compare-run-btn">Run comparison</button>
+        <p class="compare-note" id="compare-note"></p>
+        <div class="compare-list" id="compare-list"></div>
+        <p id="input-status-compare" class="input-status"></p>
       </div>
     </aside>
   </main>
@@ -326,10 +350,15 @@ const statAlgorithm = requireElement<HTMLElement>("#stat-algorithm");
 const statSolution = requireElement<HTMLElement>("#stat-solution");
 const statTime = requireElement<HTMLElement>("#stat-time");
 const statNodes = requireElement<HTMLElement>("#stat-nodes");
-const compareButton = requireElement<HTMLButtonElement>("#compare-solvers");
-const comparePanel = requireElement<HTMLElement>("#compare-panel");
-const compareBody = requireElement<HTMLElement>("#compare-body");
 const compareNote = requireElement<HTMLElement>("#compare-note");
+const compareToggleBtn = requireElement<HTMLButtonElement>("#compare-toggle");
+const compareModePanel = requireElement<HTMLElement>("#compare-mode-panel");
+const compareList = requireElement<HTMLElement>("#compare-list");
+const compareRunBtn = requireElement<HTMLButtonElement>("#compare-run");
+const compareScrambleBtn = requireElement<HTMLButtonElement>("#compare-scramble");
+const compareScrambleLength = requireElement<HTMLInputElement>("#compare-scramble-length");
+const compareScrambleLengthValue = requireElement<HTMLElement>("#compare-scramble-length-value");
+const compareStatusEl = requireElement<HTMLElement>("#input-status-compare");
 
 scrambleLengthInput.addEventListener("input", () => {
   scrambleLengthValue.textContent = `${scrambleLengthInput.value} moves`;
@@ -377,11 +406,9 @@ solveButton?.addEventListener("click", async () => {
   const solverName = solverSelect.options[solverSelect.selectedIndex]?.text ?? solverId;
 
   hideStepper();
-  comparePanel.setAttribute("hidden", "");
   solving = true;
   if (solveButton) solveButton.disabled = true;
   solverSelect.disabled = true;
-  compareButton.disabled = true;
   setInputStatus(`Solving with ${solverName}…`);
 
   const result = await solveAsync(solverId, projectedState);
@@ -389,7 +416,6 @@ solveButton?.addEventListener("click", async () => {
   solving = false;
   if (solveButton) solveButton.disabled = false;
   solverSelect.disabled = false;
-  compareButton.disabled = false;
 
   if (result.status === "solved") {
     const { solution, stats } = result;
@@ -400,16 +426,52 @@ solveButton?.addEventListener("click", async () => {
   }
 });
 
-// ── Compare all solvers on the same scramble ──────────────────────────────
-// Compact names so each row fits on one line in the narrow panel.
-const COMPARE_SOLVERS: { id: SolverId; name: string }[] = [
-  { id: "ida-star", name: "IDA*" },
-  { id: "a-star", name: "A*" },
-  { id: "bidirectional-ida-star", name: "Bidir. IDA*" },
-  { id: "bidirectional-bfs", name: "Bidir. BFS" },
-  { id: "greedy-best-first", name: "Greedy" },
-  { id: "two-phase", name: "Two-Phase" },
-  { id: "depth-limited-dfs", name: "DFS" },
+// ── Compare mode: race every solver on the same scramble ──────────────────
+// Compact names so each row fits on one line in the narrow panel; the blurbs
+// power the explainer that appears above the table for the enabled solvers.
+const COMPARE_SOLVERS: { id: SolverId; name: string; blurb: string }[] = [
+  {
+    id: "ida-star",
+    name: "Iterative-Deepening A-Star",
+    blurb:
+      "Explores solutions move by move, going a little deeper on each pass. It leans on a precomputed table of how far every position is from solved to skip hopeless directions, so it always finds a shortest solution while using almost no memory. That is why it is the default.",
+  },
+  {
+    id: "a-star",
+    name: "A-Star",
+    blurb:
+      "Always expands the most promising position next, scoring each one by the moves used so far plus an estimate of the moves still to go. It also finds a shortest solution, but it has to keep every position it is still considering in memory, so that pile grows quickly on harder scrambles.",
+  },
+  {
+    id: "bidirectional-ida-star",
+    name: "Bidirectional Iterative-Deepening A-Star",
+    blurb:
+      "Runs two searches at once, one from the scramble and one from the solved state, and tries to meet in the middle. Because each side only has to reach halfway, it avoids a lot of the deep digging a one-sided search would do.",
+  },
+  {
+    id: "bidirectional-bfs",
+    name: "Bidirectional Breadth-First Search",
+    blurb:
+      "Fans out one move at a time from both the scramble and the solved state until the two expanding shells collide. It is guaranteed to find a shortest solution, but every extra move multiplies the number of positions it must remember. On deep scrambles the shells grow enormous, so it runs out of memory and time before they ever meet.",
+  },
+  {
+    id: "greedy-best-first",
+    name: "Greedy Best-First Search",
+    blurb:
+      "Always grabs the move that looks closest to solved right now and never looks back at how many moves it has already spent. That makes it fast to act but short sighted, so it usually stumbles onto a solution far longer than necessary.",
+  },
+  {
+    id: "two-phase",
+    name: "Two-Phase",
+    blurb:
+      "Solves in two stages. First it steers the puzzle into a simpler, well behaved family of positions, then it finishes from there. This is how fast speedcubing solvers work, very quick and usually close to the shortest, though not always exactly optimal.",
+  },
+  {
+    id: "depth-limited-dfs",
+    name: "Depth-Limited Depth-First Search",
+    blurb:
+      "Pure brute force. It tries every possible sequence of moves up to a fixed length, with no sense of which way is closer to solved. That is fine for a move or two, but the number of sequences explodes, so it cannot reach the depth a real scramble needs. That is why it shows a dash instead of a solution.",
+  },
 ];
 const COMPARE_MAX_NODES = 2_000_000;
 
@@ -417,8 +479,208 @@ function formatMs(ms: number): string {
   return ms < 1 ? "<1 ms" : `${Math.round(ms).toLocaleString()} ms`;
 }
 
-compareButton.addEventListener("click", async () => {
+// The scramble the most recent comparison ran on, so selecting a solver can
+// reset the puzzle and replay that solver's solution from the same state.
+let compareScramble: readonly Move[] = [];
+
+type CompareResult =
+  | { status: "solved"; solution: readonly Move[]; stats: SolveResult["stats"] }
+  | { status: "failed" };
+const compareResults = new Map<SolverId, CompareResult>();
+let compareSelectedId: SolverId | null = null;
+
+compareScrambleLength.addEventListener("input", () => {
+  compareScrambleLengthValue.textContent = `${compareScrambleLength.value} moves`;
+});
+
+// ── Unified solver list: one row per algorithm with an include checkbox, live
+// metrics after a run, and an expandable detail (description + move-stepper). ──
+type CompareItem = {
+  root: HTMLElement;
+  checkbox: HTMLInputElement;
+  len: HTMLElement;
+  nodes: HTMLElement;
+  time: HTMLElement;
+  detail: HTMLElement;
+};
+const compareItems = new Map<SolverId, CompareItem>();
+
+for (const { id, name, blurb } of COMPARE_SOLVERS) {
+  const root = document.createElement("div");
+  root.className = "cmp-item";
+  root.dataset.id = id;
+  root.innerHTML =
+    `<div class="cmp-row">` +
+    `<label class="cmp-check"><input type="checkbox" checked aria-label="Include ${name}"></label>` +
+    `<button type="button" class="cmp-head">` +
+    `<span class="cmp-head-text">` +
+    `<span class="cmp-name">${name}</span>` +
+    `<span class="cmp-metrics"><span class="cmp-len"></span><span class="cmp-nodes"></span><span class="cmp-time"></span></span>` +
+    `</span>` +
+    `<span class="cmp-caret" aria-hidden="true">▸</span>` +
+    `</button></div>` +
+    `<div class="cmp-detail" hidden><p class="cmp-blurb">${blurb}</p><div class="cmp-stepper"></div></div>`;
+  compareList.appendChild(root);
+  const checkbox = root.querySelector<HTMLInputElement>(".cmp-check input")!;
+  checkbox.addEventListener("change", () => {
+    root.classList.toggle("cmp-item--off", !checkbox.checked);
+    compareRunBtn.disabled = solving || !solverReady || enabledCompareSolvers().length === 0;
+  });
+  root.querySelector<HTMLButtonElement>(".cmp-head")!.addEventListener("click", () => selectCompareItem(id));
+  compareItems.set(id, {
+    root,
+    checkbox,
+    len: root.querySelector(".cmp-len")!,
+    nodes: root.querySelector(".cmp-nodes")!,
+    time: root.querySelector(".cmp-time")!,
+    detail: root.querySelector(".cmp-detail")!,
+  });
+}
+
+function enabledCompareSolvers() {
+  return COMPARE_SOLVERS.filter(({ id }) => compareItems.get(id)?.checkbox.checked);
+}
+
+// ── Compare-mode move-stepper (lives inside the selected solver's detail) ──
+let cmpStepSolution: readonly Move[] = [];
+let cmpStepIndex = 0;
+let cmpStepLocked = false;
+let cmpStepperEl: HTMLElement | null = null;
+
+function selectCompareItem(id: SolverId) {
+  const item = compareItems.get(id);
+  if (!item) return;
+
+  // Collapse a second click on the already-open row.
+  if (compareSelectedId === id) {
+    item.root.classList.remove("cmp-item--selected");
+    item.detail.setAttribute("hidden", "");
+    compareSelectedId = null;
+    return;
+  }
+
+  for (const [, other] of compareItems) {
+    other.root.classList.remove("cmp-item--selected");
+    other.detail.setAttribute("hidden", "");
+  }
+  item.root.classList.add("cmp-item--selected");
+  item.detail.removeAttribute("hidden");
+  compareSelectedId = id;
+
+  const result = compareResults.get(id);
+  cmpStepperEl = item.detail.querySelector(".cmp-stepper");
+  if (result?.status === "solved") {
+    replayInCompare(result.solution);
+  } else {
+    cmpStepSolution = [];
+    if (cmpStepperEl) cmpStepperEl.replaceChildren();
+  }
+}
+
+// Reset to the comparison's scramble and animate the chosen solution, staying
+// in Compare mode. A stepper in the detail then allows stepping move-by-move.
+function replayInCompare(solution: readonly Move[]) {
+  resetVisualState();
+  fastApplyMoves(compareScramble);
+  cmpStepSolution = solution;
+  cmpStepIndex = 0;
+  cmpStepLocked = solution.length > 0;
+  buildCmpStepper();
+  if (solution.length === 0) return;
+  enqueueMoves(solution, FAST_TURN_DURATION_MS, (index) => {
+    cmpStepIndex = index + 1;
+    if (cmpStepIndex >= cmpStepSolution.length) cmpStepLocked = false;
+    updateCmpStepperUI();
+  });
+  updateCmpStepperUI();
+}
+
+function buildCmpStepper() {
+  if (!cmpStepperEl) return;
+  cmpStepperEl.replaceChildren();
+  const seq = document.createElement("div");
+  seq.className = "cmp-step-seq";
+  cmpStepSolution.forEach((move) => {
+    const span = document.createElement("span");
+    span.className = "cmp-step-move";
+    span.textContent = formatMove(move);
+    seq.appendChild(span);
+  });
+  const nav = document.createElement("div");
+  nav.className = "cmp-step-nav";
+  nav.innerHTML =
+    `<button type="button" class="cmp-step-back">← Back</button>` +
+    `<span class="cmp-step-label"></span>` +
+    `<button type="button" class="cmp-step-fwd">Next →</button>`;
+  cmpStepperEl.append(seq, nav);
+  nav.querySelector<HTMLButtonElement>(".cmp-step-back")!.addEventListener("click", () => {
+    if (cmpStepLocked || cmpStepIndex === 0) return;
+    cmpStepIndex--;
+    enqueueMoves([invertMove(cmpStepSolution[cmpStepIndex]!)], DEFAULT_TURN_DURATION_MS);
+    updateCmpStepperUI();
+  });
+  nav.querySelector<HTMLButtonElement>(".cmp-step-fwd")!.addEventListener("click", () => {
+    if (cmpStepLocked || cmpStepIndex >= cmpStepSolution.length) return;
+    enqueueMoves([cmpStepSolution[cmpStepIndex]!], DEFAULT_TURN_DURATION_MS);
+    cmpStepIndex++;
+    updateCmpStepperUI();
+  });
+  updateCmpStepperUI();
+}
+
+function updateCmpStepperUI() {
+  if (!cmpStepperEl) return;
+  const atStart = cmpStepIndex === 0;
+  const atEnd = cmpStepIndex >= cmpStepSolution.length;
+  const back = cmpStepperEl.querySelector<HTMLButtonElement>(".cmp-step-back");
+  const fwd = cmpStepperEl.querySelector<HTMLButtonElement>(".cmp-step-fwd");
+  const label = cmpStepperEl.querySelector<HTMLElement>(".cmp-step-label");
+  if (back) back.disabled = cmpStepLocked || atStart;
+  if (fwd) fwd.disabled = cmpStepLocked || atEnd;
+  if (label) label.textContent = `${cmpStepIndex} / ${cmpStepSolution.length}`;
+  cmpStepperEl.querySelectorAll<HTMLElement>(".cmp-step-move").forEach((el, i) => {
+    el.className =
+      "cmp-step-move" +
+      (i < cmpStepIndex ? " cmp-step-move--done" : i === cmpStepIndex ? " cmp-step-move--next" : "");
+  });
+}
+
+function clearCompareResults() {
+  compareResults.clear();
+  compareSelectedId = null;
+  cmpStepSolution = [];
+  cmpStepperEl = null;
+  for (const [, item] of compareItems) {
+    item.root.classList.remove("cmp-item--selected", "cmp-running", "cmp-incomplete");
+    item.detail.setAttribute("hidden", "");
+    for (const cell of [item.len, item.nodes, item.time]) {
+      cell.textContent = "";
+      cell.classList.remove("cmp-best");
+    }
+  }
+  compareNote.textContent = "";
+}
+
+compareScrambleBtn.addEventListener("click", () => {
+  if (solving) return;
+  clearCompareResults();
+  resetVisualState();
+  const length = Number(compareScrambleLength.value);
+  const scramble = createRandomScramble(length);
+  compareScramble = [];
+  setInputStatus(`Scramble (${length}): ${formatAlgorithm(scramble)}`);
+  enqueueMoves(scramble, FAST_TURN_DURATION_MS);
+  setHashScramble(scramble);
+});
+
+compareRunBtn.addEventListener("click", async () => {
   if (solving || !solverReady) return;
+
+  const enabled = enabledCompareSolvers();
+  if (enabled.length === 0) {
+    setInputStatus("Tick at least one solver to compare.");
+    return;
+  }
 
   const pendingMoves = [
     ...(activeTurn ? [activeTurn.move] : []),
@@ -427,58 +689,44 @@ compareButton.addEventListener("click", async () => {
   const projectedState = applyAlgorithm(engineState, pendingMoves);
 
   if (isSolved(projectedState)) {
-    setInputStatus("Already solved.");
+    setInputStatus("Scramble first. The puzzle is already solved.");
     return;
   }
 
-  hideStepper();
-  hideStats();
+  // Capture the scramble that reaches this state so selections can replay it.
+  compareScramble = simplifyAlgorithm([...moveHistory, ...pendingMoves]);
+
+  clearCompareResults();
   solving = true;
-  if (solveButton) solveButton.disabled = true;
-  solverSelect.disabled = true;
-  compareButton.disabled = true;
+  compareRunBtn.disabled = true;
+  compareScrambleBtn.disabled = true;
   setInputStatus("Comparing solvers…");
 
-  comparePanel.removeAttribute("hidden");
-  compareNote.textContent = "";
-  compareBody.replaceChildren();
-  const cells = new Map<SolverId, { len: HTMLElement; time: HTMLElement; nodes: HTMLElement; row: HTMLElement }>();
-  for (const { id, name } of COMPARE_SOLVERS) {
-    const row = document.createElement("tr");
-    row.innerHTML =
-      `<td class="c-name">${name}</td>` +
-      `<td class="c-len">·</td><td class="c-time">·</td><td class="c-nodes">·</td>`;
-    compareBody.appendChild(row);
-    cells.set(id, {
-      len: row.querySelector(".c-len")!,
-      time: row.querySelector(".c-time")!,
-      nodes: row.querySelector(".c-nodes")!,
-      row,
-    });
-  }
-
   const solved: { id: SolverId; len: number; ms: number; nodes: number }[] = [];
-  for (const { id } of COMPARE_SOLVERS) {
-    const cell = cells.get(id)!;
-    cell.row.classList.add("c-running");
-    cell.len.textContent = "…";
+  for (const { id } of enabled) {
+    const item = compareItems.get(id)!;
+    item.root.classList.add("cmp-running");
+    item.len.textContent = "…";
     let result: SolveResult | undefined;
     try {
       result = await solveAsync(id, projectedState, COMPARE_MAX_NODES);
     } catch {
       result = undefined;
     }
-    cell.row.classList.remove("c-running");
+    item.root.classList.remove("cmp-running");
     if (result && result.status === "solved") {
-      cell.len.textContent = String(result.solution.length);
-      cell.time.textContent = formatMs(result.stats.elapsedMs);
-      cell.nodes.textContent = result.stats.nodesExpanded.toLocaleString();
+      const len = result.solution.length;
+      item.len.textContent = `${len} move${len === 1 ? "" : "s"}`;
+      item.nodes.textContent = `${result.stats.nodesExpanded.toLocaleString()} nodes`;
+      item.time.textContent = formatMs(result.stats.elapsedMs);
+      compareResults.set(id, { status: "solved", solution: result.solution, stats: result.stats });
       solved.push({ id, len: result.solution.length, ms: result.stats.elapsedMs, nodes: result.stats.nodesExpanded });
     } else {
-      cell.row.classList.add("c-incomplete");
-      cell.len.textContent = "—";
-      cell.time.textContent = result ? formatMs(result.stats.elapsedMs) : "—";
-      cell.nodes.textContent = result ? result.stats.nodesExpanded.toLocaleString() : "—";
+      item.root.classList.add("cmp-incomplete");
+      item.len.textContent = "-";
+      item.nodes.textContent = result ? `${result.stats.nodesExpanded.toLocaleString()} nodes` : "";
+      item.time.textContent = result ? formatMs(result.stats.elapsedMs) : "";
+      compareResults.set(id, { status: "failed" });
     }
   }
 
@@ -487,20 +735,19 @@ compareButton.addEventListener("click", async () => {
     const minMs = Math.min(...solved.map((r) => r.ms));
     const minNodes = Math.min(...solved.map((r) => r.nodes));
     for (const r of solved) {
-      const cell = cells.get(r.id)!;
-      if (r.len === minLen) cell.len.classList.add("c-best");
-      if (r.ms === minMs) cell.time.classList.add("c-best");
-      if (r.nodes === minNodes) cell.nodes.classList.add("c-best");
+      const item = compareItems.get(r.id)!;
+      if (r.len === minLen) item.len.classList.add("cmp-best");
+      if (r.ms === minMs) item.time.classList.add("cmp-best");
+      if (r.nodes === minNodes) item.nodes.classList.add("cmp-best");
     }
-    compareNote.textContent = `Optimal is ${minLen} moves. Highlighted = best in column.`;
+    compareNote.textContent = `Optimal is ${minLen} moves. Click any solver to read it and replay. The best in each stat is shown in bold.`;
   } else {
     compareNote.textContent = "No solver finished within the node budget.";
   }
 
   solving = false;
-  if (solveButton) solveButton.disabled = false;
-  solverSelect.disabled = false;
-  compareButton.disabled = false;
+  compareRunBtn.disabled = enabledCompareSolvers().length === 0;
+  compareScrambleBtn.disabled = false;
   setInputStatus("Ready");
 });
 
@@ -513,12 +760,14 @@ function markSolverReady() {
   solverReady = true;
   if (!solving) {
     if (solveButton) solveButton.disabled = false;
-    compareButton.disabled = false;
+    compareRunBtn.disabled = enabledCompareSolvers().length === 0;
+    compareScrambleBtn.disabled = false;
   }
   if (inputStatus.textContent === "Preparing solver…") setInputStatus("Ready");
 }
 if (solveButton) solveButton.disabled = true;
-compareButton.disabled = true;
+compareRunBtn.disabled = true;
+compareScrambleBtn.disabled = true;
 setInputStatus("Preparing solver…");
 solverWorker.addEventListener("message", (event: MessageEvent<{ type?: string }>) => {
   if (event.data?.type === "ready") markSolverReady();
@@ -529,7 +778,6 @@ setTimeout(markSolverReady, 8000);
 document.querySelector<HTMLButtonElement>("[data-clear]")?.addEventListener("click", () => {
   hideStepper();
   hideStats();
-  comparePanel.setAttribute("hidden", "");
   resetVisualState();
   clearHashScramble();
   setInputStatus("Reset puzzle.");
@@ -589,7 +837,8 @@ function requireElement<T extends Element>(selector: string): T {
 }
 
 function setInputStatus(message: string) {
-  (paintMode ? paintStatusEl : inputStatus).textContent = message;
+  const target = paintMode ? paintStatusEl : compareMode ? compareStatusEl : inputStatus;
+  target.textContent = message;
 }
 
 function setHashScramble(scramble: readonly Move[]) {
@@ -620,15 +869,14 @@ function showStats(algorithm: string, moves: number, elapsedMs: number, nodes: n
   statTime.textContent = elapsedMs < 1 ? "<1 ms" : `${Math.round(elapsedMs).toLocaleString()} ms`;
   statNodes.textContent = nodes.toLocaleString();
   solveStats.removeAttribute("hidden");
-  comparePanel.setAttribute("hidden", "");
 }
 
 function hideStats() {
   solveStats.setAttribute("hidden", "");
-  statAlgorithm.textContent = "—";
-  statSolution.textContent = "—";
-  statTime.textContent = "—";
-  statNodes.textContent = "—";
+  statAlgorithm.textContent = "-";
+  statSolution.textContent = "-";
+  statTime.textContent = "-";
+  statNodes.textContent = "-";
 }
 
 function resetVisualState() {
@@ -1367,6 +1615,11 @@ paintToggleBtn.addEventListener("click", () => {
   else enterPaintMode();
 });
 
+compareToggleBtn.addEventListener("click", () => {
+  if (compareMode) exitCompareMode();
+  else enterCompareMode();
+});
+
 markSolvedBtn.addEventListener("click", () => {
   for (const [key, mat] of stickerMaterials) {
     const faceIndex = parseInt(key.split(":")[1]!);
@@ -1484,7 +1737,7 @@ solvePaintedBtn.addEventListener("click", async () => {
   solverSelect.disabled = false;
 
   if (result.status !== "solved") {
-    setInputStatus("No solution found — the color input may have an impossible state.");
+    setInputStatus("No solution found. The color input may be an impossible state.");
     return;
   }
 
@@ -1497,9 +1750,11 @@ solvePaintedBtn.addEventListener("click", async () => {
 });
 
 function enterPaintMode() {
+  if (compareMode) exitCompareMode();
   hideStepper();
   resetVisualState();
   paintMode = true;
+  compareToggleBtn.setAttribute("hidden", "");
   userStickerColors.clear();
   paintColorIndex = 0;
   paintStatusEl.textContent = "";
@@ -1528,8 +1783,31 @@ function exitPaintMode() {
   ambientLight.intensity = 1.2;
   paintToggleBtn.textContent = "My Cube";
   delete paintToggleBtn.dataset.active;
+  compareToggleBtn.removeAttribute("hidden");
   normalPanel.removeAttribute("hidden");
   paintPanel.setAttribute("hidden", "");
+}
+
+function enterCompareMode() {
+  if (paintMode) exitPaintMode();
+  hideStepper();
+  hideStats();
+  compareMode = true;
+  paintToggleBtn.setAttribute("hidden", "");
+  compareToggleBtn.textContent = "← Exit";
+  compareToggleBtn.dataset.active = "";
+  normalPanel.setAttribute("hidden", "");
+  compareModePanel.removeAttribute("hidden");
+  setInputStatus(solverReady ? "Scramble, then run the comparison." : "Preparing solver…");
+}
+
+function exitCompareMode() {
+  compareMode = false;
+  compareToggleBtn.textContent = "Solver Lab";
+  delete compareToggleBtn.dataset.active;
+  paintToggleBtn.removeAttribute("hidden");
+  compareModePanel.setAttribute("hidden", "");
+  normalPanel.removeAttribute("hidden");
 }
 
 function fastApplyMoves(moves: readonly Move[]) {
@@ -1573,7 +1851,7 @@ function updatePaintReadiness() {
   paintProgressBar.style.width = `${Math.round(progress * 100)}%`;
   solvePaintedBtn.disabled = solving || !readiness.ready;
   solvePaintedBtn.title = readiness.ready ? "" : "Each color must appear exactly 4 times.";
-  paintColorStatusEl.textContent = `Selected color: ${selectedColorCount} / 4 stickers`;
+  paintColorStatusEl.textContent = `${colorNames[paintColorIndex] ?? "Color"}: ${selectedColorCount} / 4 stickers painted`;
   paintColorStatusEl.dataset.state =
     selectedColorCount === 4 ? "complete" : selectedColorCount > 4 ? "invalid" : "incomplete";
 }
@@ -1608,7 +1886,7 @@ function reconstructStateFromColors(): PuzzleState | null {
 
   const wrongCount = colorCounts.findIndex((count) => count !== 4);
   if (wrongCount !== -1) {
-    setInputStatus(`Color ${wrongCount + 1} has ${colorCounts[wrongCount]} stickers; each color needs 4.`);
+    setInputStatus(`Color ${wrongCount + 1} has ${colorCounts[wrongCount]} stickers, but each color needs 4.`);
     return null;
   }
 
@@ -1654,7 +1932,7 @@ function reconstructStateFromColors(): PuzzleState | null {
     }
 
     if (!found) {
-      setInputStatus(`Painting error at ${SLOT_IDS[s]} — check that piece for a wrong color.`);
+      setInputStatus(`Painting error at ${SLOT_IDS[s]}. Check that piece for a wrong color.`);
       return null;
     }
   }
@@ -1666,7 +1944,7 @@ function reconstructStateFromColors(): PuzzleState | null {
   }
 
   if (!isReachablePiecePermutation(resultPieces)) {
-    setInputStatus("Impossible piece placement — check face color locality or a mispainted sticker.");
+    setInputStatus("Impossible piece placement. Check face color locality or a mispainted sticker.");
     return null;
   }
 
